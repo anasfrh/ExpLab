@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/logo.png" alt="ExpLab Logo" width="200" height="100" style="border-radius: 10px"/>
+  <img src="./assets/logo.png" alt="ExpLab Logo" width="200" style="border-radius: 10px"/>
 </p>
 
 # ExpLab: Warehouse-Native Experimentation Platform
