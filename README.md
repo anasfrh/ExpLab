@@ -1,17 +1,16 @@
 <p align="center">
-  <img src="./assets/logo.png" alt="ExpLab Logo" width="200"/>
+  <img src="./assets/logo.png" alt="ExpLab Logo" width="200" height="100" style="border-radius: 10px"/>
 </p>
 
 # ExpLab: Warehouse-Native Experimentation Platform
 
-<p align="center">
-  <img src="./assets/screenshot.png" alt="ExpLab Dashboard Screenshot" width="800" style="border-radius: 10px;"/>
-</p>
-
-
 ExpLab is a modern, open-source, warehouse-native experimentation platform designed to run A/B tests and calculate statistical significance directly on top of your existing data warehouse. 
 
 Instead of copying sensitive user event data to a third-party analytics tool, ExpLab operates **where your data already lives**. This guarantees single-source-of-truth accuracy, dramatically reduces latency, and protects user privacy.
+
+<p align="center">
+  <img src="./assets/screenshot.png" alt="ExpLab Dashboard Screenshot" width="600" style="border-radius: 10px;"/>
+</p>
 
 ## ✨ Key Features
 
