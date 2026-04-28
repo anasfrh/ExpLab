@@ -1,0 +1,139 @@
+export type ExperimentSummary = {
+  experiment_id: string;
+  users: number;
+  start_date: string;
+  latest_metric_date: string | null;
+  variant_count: number;
+};
+
+export type MetricCatalogItem = {
+  metric_id: string;
+  label: string;
+  source_name: string;
+  value_format: "number" | "currency" | "percent";
+  default_window_days: number;
+  default_winsorize_percentile: number;
+  sql_query: string;
+};
+
+export type ExperimentMetric = {
+  id: string;
+  label: string;
+  sql_expression: string;
+  value_format: "number" | "currency" | "percent";
+  source_type: "metric" | "conversion_event";
+  source_name: string;
+  default_window_days: number;
+  default_winsorize_percentile: number;
+  supports_winsorization: boolean;
+  has_experiment_override: boolean;
+};
+
+export type ConversionEventItem = {
+  event_name: string;
+  default_window_days: number;
+  usage_count: number;
+  sql_query: string;
+};
+
+export type DimensionItem = {
+  dimension_name: string;
+  distinct_values: number;
+  sql_query: string;
+};
+
+export type MetricRow = {
+  metric_id: string;
+  metric_label: string;
+  value_format: "number" | "currency" | "percent";
+  control_mean: number;
+  treatment_mean: number;
+  relative_lift: number;
+  ci_low: number;
+  ci_high: number;
+  p_value: number;
+  adjusted_p_value: number;
+  control_users: number;
+  treatment_users: number;
+  winsorized_threshold: number;
+  variation_values: {
+    [variation: string]: number;
+  };
+  variation_stats: {
+    [variation: string]: {
+      user_count: number;
+      conversion_count: number;
+      average_value: number;
+    };
+  };
+  time_series: Array<{
+    date: string;
+    variation_values: {
+      [variation: string]: number;
+    };
+  }>;
+  dimension_name: "country_code" | "mcc" | null;
+  dimension_value?: string;
+  source_type: "metric" | "conversion_event";
+  source_name: string;
+  analysis_sql: string | null;
+  window_days: number;
+  winsorize_percentile: number | null;
+  supports_winsorization: boolean;
+  has_experiment_override: boolean;
+  baseline_variant: string;
+  comparisons: Array<{
+    baseline_variant: string;
+    variant: string;
+    relative_lift: number;
+    ci_low: number;
+    ci_high: number;
+    p_value: number;
+    adjusted_p_value: number;
+  }>;
+  primary_comparison: {
+    baseline_variant: string;
+    variant: string;
+    relative_lift: number;
+    ci_low: number;
+    ci_high: number;
+    p_value: number;
+    adjusted_p_value: number;
+  } | null;
+  multiple_testing_correction_applied: boolean;
+  category: "primary" | "secondary" | "guardrail";
+};
+
+export type AnalyzeResponse = {
+  metric_rows: MetricRow[];
+  srm: {
+    counts: Record<string, number>;
+    p_value: number;
+    critical: boolean;
+  };
+  dimension_balance: Array<{
+    dimension: string;
+    p_value: number;
+    balanced: boolean;
+    buckets: Record<string, Record<string, number>>;
+  }>;
+  variations: string[];
+  multiple_testing_correction_applied: boolean;
+  multiple_testing_method: "bonferroni" | "benjamini-hochberg";
+  split_dimension: "country_code" | "mcc" | null;
+};
+
+export type SampleSizeResponse = {
+  required_per_variation: number;
+  total_required_sample: number;
+  absolute_delta: number;
+};
+
+export type PowerCalculatorResponse = {
+  metric_type: "conversion" | "continuous";
+  variant_count: number;
+  required_per_variation: number;
+  total_required_sample: number;
+  absolute_delta: number;
+  expected_treatment_value: number;
+};

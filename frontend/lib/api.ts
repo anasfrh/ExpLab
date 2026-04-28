@@ -1,0 +1,131 @@
+import {
+  AnalyzeResponse,
+  ConversionEventItem,
+  DimensionItem,
+  ExperimentMetric,
+  ExperimentSummary,
+  MetricCatalogItem,
+  PowerCalculatorResponse,
+  SampleSizeResponse,
+} from "./types";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+
+async function request<T>(path: string, payload?: object, method?: string): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: method ?? (payload ? "POST" : "GET"),
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: payload ? JSON.stringify(payload) : undefined,
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || `Request failed: ${response.status}`);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+export function listExperiments() {
+  return request<{ experiments: ExperimentSummary[] }>("/experiments");
+}
+
+export function listMetrics() {
+  return request<{ metrics: MetricCatalogItem[] }>("/metrics");
+}
+
+export function updateMetricDefaults(metricId: string, payload: { default_window_days: number; default_winsorize_percentile: number }) {
+  return request<{ message: string }>(`/metrics/${metricId}`, payload, "PUT");
+}
+
+export function listDimensions() {
+  return request<{ dimensions: DimensionItem[] }>("/dimensions");
+}
+
+export function listConversionEvents() {
+  return request<{ conversion_events: ConversionEventItem[] }>("/conversion-events");
+}
+
+export function updateConversionEventDefaults(eventName: string, payload: { default_window_days: number }) {
+  return request<{ message: string }>(`/conversion-events/${eventName}`, payload, "PUT");
+}
+
+export function listExperimentMetrics(experimentId: string) {
+  return request<{ metrics: ExperimentMetric[] }>(`/experiments/${encodeURIComponent(experimentId)}/metrics`);
+}
+
+export function updateExperimentMetricOverride(
+  experimentId: string,
+  metricId: string,
+  payload: { window_days: number; winsorize_percentile?: number },
+) {
+  return request<{ message: string }>(
+    `/experiments/${encodeURIComponent(experimentId)}/metrics/${encodeURIComponent(metricId)}/override`,
+    payload,
+    "PUT",
+  );
+}
+
+export function simulate(payload: {
+  num_users: number;
+  target_lift: number;
+  srm_skew: boolean;
+  experiment_id: string;
+  metric_name: string;
+  conversion_event_name: string;
+}) {
+  return request<{ message: string; summary: Record<string, string | number | boolean> }>("/simulate", payload);
+}
+
+export function seedDemoPortfolio() {
+  return request<{ message: string; experiments: Record<string, string | number | boolean>[] }>("/seed-demo", {}, "POST");
+}
+
+export function analyze(payload: {
+  experiment_id: string;
+  primary_metric_ids: string[];
+  secondary_metric_ids: string[];
+  guardrail_metric_ids: string[];
+  split_dimension?: "country_code" | "mcc";
+  multiple_testing_method?: "bonferroni" | "benjamini-hochberg";
+}) {
+  return request<AnalyzeResponse>("/analyze", payload);
+}
+
+export function advanceDay(payload: {
+  experiment_id: string;
+  metric_name: string;
+  conversion_event_name: string;
+  target_lift: number;
+}) {
+  return request<{ message: string; result: { date: string; metric_rows: number; conversion_events: number } }>(
+    "/advance-day",
+    payload,
+  );
+}
+
+export function calculateSampleSize(payload: {
+  baseline_mean: number;
+  baseline_stddev: number;
+  mde: number;
+  alpha: number;
+  power: number;
+}) {
+  return request<SampleSizeResponse>("/sample-size", payload);
+}
+
+export function calculatePower(payload: {
+  metric_type: "conversion" | "continuous";
+  variant_count: number;
+  baseline_rate?: number;
+  baseline_mean?: number;
+  baseline_stddev?: number;
+  mde: number;
+  alpha: number;
+  power: number;
+}) {
+  return request<PowerCalculatorResponse>("/power-calculator", payload);
+}

@@ -1,0 +1,79 @@
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+
+DimensionName = Literal["country_code", "mcc"]
+
+
+class SimulationRequest(BaseModel):
+    num_users: int = Field(default=10000, ge=100, le=500000)
+    target_lift: float = Field(default=0.08, ge=-0.95, le=10.0)
+    srm_skew: bool = False
+    experiment_id: str = "exp_revenue_v1"
+    metric_name: str = "revenue"
+    conversion_event_name: str = "purchase"
+
+
+class AnalyzeRequest(BaseModel):
+    experiment_id: str = "exp_revenue_v1"
+    primary_metric_ids: list[str] = Field(default_factory=lambda: ["revenue"])
+    secondary_metric_ids: list[str] = Field(default_factory=lambda: ["orders", "conversion_purchase"])
+    guardrail_metric_ids: list[str] = Field(default_factory=list)
+    split_dimension: DimensionName | None = None
+    multiple_testing_method: Literal["bonferroni", "benjamini-hochberg"] = "benjamini-hochberg"
+
+
+class MetricDefinition(BaseModel):
+    id: str
+    label: str
+    sql_expression: str
+    value_format: Literal["number", "currency", "percent"] = "number"
+    source_type: Literal["metric", "conversion_event"] = "metric"
+    source_name: str
+    default_window_days: int = Field(default=14, ge=1, le=30)
+    default_winsorize_percentile: float = Field(default=99.0, ge=50.0, le=100.0)
+    supports_winsorization: bool = True
+    has_experiment_override: bool = False
+
+
+class MetricOverrideRequest(BaseModel):
+    window_days: int = Field(ge=1, le=30)
+    winsorize_percentile: float | None = Field(default=None, ge=50.0, le=100.0)
+
+
+class MetricCatalogUpdateRequest(BaseModel):
+    default_window_days: int = Field(ge=1, le=30)
+    default_winsorize_percentile: float = Field(default=99.0, ge=50.0, le=100.0)
+
+
+class ConversionEventUpdateRequest(BaseModel):
+    default_window_days: int = Field(ge=1, le=30)
+
+
+class AdvanceDayRequest(BaseModel):
+    experiment_id: str = "exp_revenue_v1"
+    metric_name: str = "revenue"
+    conversion_event_name: str = "purchase"
+    target_lift: float = Field(default=0.08, ge=-0.95, le=10.0)
+
+
+class SampleSizeRequest(BaseModel):
+    baseline_mean: float = Field(default=25.0, gt=0.0)
+    baseline_stddev: float = Field(default=30.0, gt=0.0)
+    mde: float = Field(default=0.05, gt=0.0, lt=1.0)
+    alpha: float = Field(default=0.05, gt=0.0, lt=1.0)
+    power: float = Field(default=0.80, gt=0.0, lt=1.0)
+
+
+class PowerCalculatorRequest(BaseModel):
+    metric_type: Literal["conversion", "continuous"] = "conversion"
+    variant_count: int = Field(default=2, ge=2, le=20)
+    baseline_rate: float | None = Field(default=0.1, gt=0.0, lt=1.0)
+    baseline_mean: float | None = Field(default=25.0, gt=0.0)
+    baseline_stddev: float | None = Field(default=30.0, gt=0.0)
+    mde: float = Field(default=0.05, gt=0.0, lt=1.0)
+    alpha: float = Field(default=0.05, gt=0.0, lt=1.0)
+    power: float = Field(default=0.80, gt=0.0, lt=1.0)
