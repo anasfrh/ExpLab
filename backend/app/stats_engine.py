@@ -127,7 +127,7 @@ class StatsEngine:
 
         metrics = self.get_metric_definitions(experiment_id=experiment_id, metric_ids=all_metric_ids)
         metric_rows: list[dict[str, Any]] = []
-        test_slots: list[tuple[dict[str, Any], dict[str, Any]]] = []
+        test_slots_by_category: dict[str, list[tuple[dict[str, Any], dict[str, Any]]]] = {"primary": [], "secondary": []}
 
         for metric in metrics:
             category = "primary" if metric.id in primary_metric_ids else (
@@ -168,20 +168,23 @@ class StatsEngine:
                 metric_rows.append(row)
                 if not is_guardrail:
                     for comparison in row["comparisons"]:
-                        test_slots.append((row, comparison))
+                        test_slots_by_category[category].append((row, comparison))
 
         if not metric_rows:
             raise ValueError("No valid metric rows were produced for analysis.")
 
-        if test_slots:
-            raw_p_values = [float(comparison["p_value"]) for _, comparison in test_slots]
-            statsmodels_method = "fdr_bh" if multiple_testing_method == "benjamini-hochberg" else "bonferroni"
-            adjusted = multipletests(raw_p_values, method=statsmodels_method)[1] if len(raw_p_values) > 1 else raw_p_values
-            for (_, comparison), adjusted_p in zip(test_slots, adjusted, strict=True):
-                comparison["adjusted_p_value"] = float(adjusted_p)
+        for category, slots in test_slots_by_category.items():
+            if slots:
+                raw_p_values = [float(comparison["p_value"]) for _, comparison in slots]
+                statsmodels_method = "fdr_bh" if multiple_testing_method == "benjamini-hochberg" else "bonferroni"
+                adjusted = multipletests(raw_p_values, method=statsmodels_method)[1] if len(raw_p_values) > 1 else raw_p_values
+                for (_, comparison), adjusted_p in zip(slots, adjusted, strict=True):
+                    comparison["adjusted_p_value"] = float(adjusted_p)
 
         for row in metric_rows:
-            row["multiple_testing_correction_applied"] = len(test_slots) > 1 and row.get("category") != "guardrail"
+            category = row.get("category")
+            slots_len = len(test_slots_by_category.get(category, []))
+            row["multiple_testing_correction_applied"] = slots_len > 1
             if row["comparisons"]:
                 row["primary_comparison"] = row["comparisons"][0]
             else:
@@ -193,7 +196,7 @@ class StatsEngine:
             "srm": self._srm_check(experiment_users),
             "dimension_balance": self._dimension_balance_checks(experiment_users),
             "variations": self._ordered_variations([str(row["variation_id"]) for row in experiment_users]),
-            "multiple_testing_correction_applied": len(test_slots) > 1,
+            "multiple_testing_correction_applied": any(len(slots) > 1 for slots in test_slots_by_category.values()),
             "multiple_testing_method": multiple_testing_method,
             "split_dimension": split_dimension,
             "has_multiple_exposures": multiple_exposures_check["has_multiple_exposures"],

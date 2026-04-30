@@ -634,7 +634,8 @@ function ExperimentChecksPanel({
       {analysis.has_multiple_exposures && (
         <div className="warning-banner" style={{ background: "rgba(239, 68, 68, 0.15)", color: "var(--red)", padding: "16px", borderRadius: "8px", marginBottom: "24px" }}>
           <strong>⚠️ Multiple Exposures Detected</strong>
-          <p style={{ margin: "4px 0 0 0" }}>{analysis.multiple_exposures_count} user(s) were exposed to more than one variation in this experiment. This violates the stable unit treatment value assumption (SUTVA) and may invalidate these results.</p>
+          <p style={{ margin: "4px 0 0 0" }}>{analysis.multiple_exposures_count} user(s) were exposed to more than one variation in this experiment.</p>
+          <p style={{ margin: "4px 0 0 0" }}>This violates the stable unit treatment value assumption (SUTVA). These results may be invalid.</p>
         </div>
       )}
       <div className="checks-grid">
