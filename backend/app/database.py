@@ -37,7 +37,8 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS dimensions (
                 user_id TEXT NOT NULL,
                 country_code TEXT NOT NULL,
-                mcc TEXT NOT NULL
+                mcc TEXT NOT NULL,
+                os TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS metrics (
