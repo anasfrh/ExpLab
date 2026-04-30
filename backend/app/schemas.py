@@ -37,6 +37,7 @@ class MetricDefinition(BaseModel):
     default_winsorize_percentile: float = Field(default=99.0, ge=50.0, le=100.0)
     supports_winsorization: bool = True
     has_experiment_override: bool = False
+    desired_direction: Literal["up", "down"] = "up"
 
 
 class MetricOverrideRequest(BaseModel):
@@ -47,6 +48,7 @@ class MetricOverrideRequest(BaseModel):
 class MetricCatalogUpdateRequest(BaseModel):
     default_window_days: int = Field(ge=1, le=30)
     default_winsorize_percentile: float = Field(default=99.0, ge=50.0, le=100.0)
+    desired_direction: Literal["up", "down"] = "up"
 
 
 class ConversionEventUpdateRequest(BaseModel):

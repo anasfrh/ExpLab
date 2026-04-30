@@ -241,80 +241,71 @@ export function ExperimentView({ experimentId }: { experimentId: string }) {
         </div>
       </header>
 
-      <section className="headline-grid">
-        <div className="headline-panel">
-          <div className="section-tag">Navigation</div>
-          <h2>Focused experiment readout with inline overrides and multivariant comparisons.</h2>
-          <p>
-            Global metric defaults and conversion-event windows come from the shared catalog. Inline edits here only
-            affect this experiment after you save the override.
-          </p>
-          <div className="summary-note">
-            Baseline is shown as <strong>{getVariationLabel(baselineVariant, variations)}</strong>. Choose a treatment
-            in the results table to compare one arm at a time against control.
+      <section style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+        <div className="headline-panel" style={{ padding: "12px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+            <div className="section-tag" style={{ margin: 0 }}>Navigation</div>
+            <h3 style={{ margin: 0, fontSize: "1rem" }}>Overview</h3>
+            <span style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
+              Baseline: <strong>{getVariationLabel(baselineVariant, variations)}</strong>
+            </span>
           </div>
-          <div className="headline-actions">
-            <Link className="button button-secondary" href="/">
+          <div className="headline-actions" style={{ margin: 0 }}>
+            <Link className="button button-secondary button-compact" href="/">
               Back to experiments
             </Link>
-            <button className="button button-primary" disabled={isPending} onClick={() => refreshAll(primaryMetricIds, secondaryMetricIds, guardrailMetricIds)}>
+            <button className="button button-primary button-compact" disabled={isPending} onClick={() => refreshAll(primaryMetricIds, secondaryMetricIds, guardrailMetricIds)}>
               Refresh Results
             </button>
-            <button className="button button-secondary" disabled={isPending} onClick={handleAdvanceDay}>
+            <button className="button button-secondary button-compact" disabled={isPending} onClick={handleAdvanceDay}>
               Advance Batch Day
             </button>
           </div>
         </div>
-        <div className="headline-panel">
-          <div className="section-tag">Status</div>
-          <div className="status-panel">
-            <p>{status}</p>
-            <div className="field">
-              <label>Add Primary Metric</label>
-              <select onChange={(e) => (e.target.value ? addMetricRow(e.target.value, "primary") : null)} value="">
-                <option value="">Select a metric</option>
+
+        <div className="headline-panel" style={{ padding: "12px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+            <div className="section-tag" style={{ margin: 0 }}>Status</div>
+            <span style={{ fontSize: "0.85rem", color: "var(--muted)" }}>{status}</span>
+          </div>
+          <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+            <div className="field" style={{ margin: 0 }}>
+              <select style={{ padding: "6px 10px", fontSize: "0.85rem" }} onChange={(e) => (e.target.value ? addMetricRow(e.target.value, "primary") : null)} value="">
+                <option value="">+ Primary Metric</option>
                 {availableToAdd.map((metric) => (
                   <option key={metric.id} value={metric.id}>{metric.label}</option>
                 ))}
               </select>
             </div>
-            <div className="field">
-              <label>Add Secondary Metric</label>
-              <select onChange={(e) => (e.target.value ? addMetricRow(e.target.value, "secondary") : null)} value="">
-                <option value="">Select a metric</option>
+            <div className="field" style={{ margin: 0 }}>
+              <select style={{ padding: "6px 10px", fontSize: "0.85rem" }} onChange={(e) => (e.target.value ? addMetricRow(e.target.value, "secondary") : null)} value="">
+                <option value="">+ Secondary Metric</option>
                 {availableToAdd.map((metric) => (
                   <option key={metric.id} value={metric.id}>{metric.label}</option>
                 ))}
               </select>
             </div>
-            <div className="field">
-              <label>Add Guardrail Metric</label>
-              <select onChange={(e) => (e.target.value ? addMetricRow(e.target.value, "guardrail") : null)} value="">
-                <option value="">Select a metric</option>
+            <div className="field" style={{ margin: 0 }}>
+              <select style={{ padding: "6px 10px", fontSize: "0.85rem" }} onChange={(e) => (e.target.value ? addMetricRow(e.target.value, "guardrail") : null)} value="">
+                <option value="">+ Guardrail Metric</option>
                 {availableToAdd.map((metric) => (
                   <option key={metric.id} value={metric.id}>{metric.label}</option>
                 ))}
               </select>
             </div>
-            <div className="field">
-              <label>Slice by dimension</label>
-              <select value={splitDimension} onChange={(e) => setSplitDimension(e.target.value as "none" | "country_code" | "mcc")}>
-                <option value="none">No split</option>
-                <option value="country_code">Country</option>
-                <option value="mcc">MCC</option>
+            <div className="field" style={{ margin: 0 }}>
+              <select style={{ padding: "6px 10px", fontSize: "0.85rem" }} value={splitDimension} onChange={(e) => setSplitDimension(e.target.value as "none" | "country_code" | "mcc")}>
+                <option value="none">No dimension split</option>
+                <option value="country_code">Split by Country</option>
+                <option value="mcc">Split by MCC</option>
               </select>
             </div>
-            <div className="field">
-              <label>Multiple testing adjustment</label>
-              <select
-                value={multipleTestingMethod}
-                onChange={(e) => setMultipleTestingMethod(e.target.value as "bonferroni" | "benjamini-hochberg")}
-              >
-                <option value="benjamini-hochberg">Benjamini-Hochberg</option>
-                <option value="bonferroni">Bonferroni</option>
+            <div className="field" style={{ margin: 0 }}>
+              <select style={{ padding: "6px 10px", fontSize: "0.85rem" }} value={multipleTestingMethod} onChange={(e) => setMultipleTestingMethod(e.target.value as "bonferroni" | "benjamini-hochberg")}>
+                <option value="benjamini-hochberg">FDR (B-H)</option>
+                <option value="bonferroni">FWER (Bonferroni)</option>
               </select>
             </div>
-            <div className="summary-note">Use the edit icon in the results table to override windowing or winsorization at the experiment level.</div>
           </div>
         </div>
       </section>
@@ -398,120 +389,139 @@ export function ExperimentView({ experimentId }: { experimentId: string }) {
                       {categoryRows.map((row) => {
                         const selectedComparison =
                           row.comparisons.find((comparison) => comparison.variant === activeTreatment) ?? row.primary_comparison;
+
+                        const isStatSig = selectedComparison && selectedComparison.adjusted_p_value !== null && selectedComparison.adjusted_p_value < 0.05;
+                        const isPositive = selectedComparison && (row.desired_direction === "down" ? selectedComparison.relative_lift < 0 : selectedComparison.relative_lift > 0);
+                        const isNegative = selectedComparison && (row.desired_direction === "down" ? selectedComparison.relative_lift > 0 : selectedComparison.relative_lift < 0);
+
+                        let ciColor = "var(--muted-2)";
+                        let pvalueBg = "transparent";
+                        let pvalueColor = "inherit";
+
+                        if (isStatSig && isPositive) {
+                          ciColor = "var(--green)";
+                          pvalueBg = "rgba(34, 197, 94, 0.15)";
+                          pvalueColor = "var(--green)";
+                        } else if (isStatSig && isNegative) {
+                          ciColor = "var(--red)";
+                          pvalueBg = "rgba(239, 68, 68, 0.15)";
+                          pvalueColor = "var(--red)";
+                        }
+
                         return (
                           <Fragment key={row.metric_id}>
                             <tr>
                               <td>
-                          <div className="metric-name-row">
-                            <div>
-                              <div className="table-primary">{row.metric_label}</div>
-                              <div className="table-secondary">
-                                {row.source_type === "conversion_event"
-                                  ? `Event: ${row.source_name} • ${row.window_days}d window`
-                                  : `Metric: ${row.source_name} • ${row.window_days}d window • P${row.winsorize_percentile}`}
-                              </div>
-                              {row.dimension_name && row.dimension_value ? (
-                                <div className="table-secondary">
-                                  {row.dimension_name}: {row.dimension_value}
-                                </div>
-                              ) : null}
-                              {row.has_experiment_override ? (
-                                <div className="row-flags">
-                                  <span className="mini-badge mini-badge-cyan">Experiment override</span>
-                                </div>
-                              ) : null}
-                              {row.source_type === "conversion_event" ? (
-                                <button
-                                  className="inline-link inline-link-button"
-                                  onClick={() => setSqlMetricId((current) => (current === row.metric_id ? null : row.metric_id))}
-                                >
-                                  {sqlMetricId === row.metric_id ? "Hide SQL" : "View SQL"}
-                                </button>
-                              ) : null}
-                            </div>
-                            <button
-                              className="icon-button"
-                              onClick={() => openEditor(row.metric_id, row.window_days, row.winsorize_percentile)}
-                              aria-label={`Edit ${row.metric_label}`}
-                            >
-                              ✎
-                            </button>
-                          </div>
-                        </td>
-                        {[baselineVariant, activeTreatment].map((variation) => (
-                          <td key={variation}>
-                            <div className="variant-cell">
-                              <div className="variant-primary">
-                                {variation
-                                  ? formatValue(row.variation_stats[variation]?.average_value ?? row.variation_values[variation] ?? 0, row.value_format)
-                                  : "n/a"}
-                              </div>
-                              <div className="variant-stat-list">
-                                <div className="variant-stat-line">
-                                  <span>Users</span>
-                                  <strong>{variation ? formatCount(row.variation_stats[variation]?.user_count ?? 0) : "n/a"}</strong>
-                                </div>
-                                <div className="variant-stat-line">
-                                  <span>Conversions</span>
-                                  <strong>{variation ? formatCount(row.variation_stats[variation]?.conversion_count ?? 0) : "n/a"}</strong>
-                                </div>
-                              </div>
-                            </div>
-                          </td>
-                        ))}
-                        <td>
-                          <div className="lift-cell">
-                            {selectedComparison ? (() => {
-                              const comparison = selectedComparison;
-                              const scaleMin = Math.min(comparison.ci_low, comparison.ci_high, 0);
-                              const scaleMax = Math.max(comparison.ci_low, comparison.ci_high, 0);
-                              const scaleRange = Math.max(0.0001, scaleMax - scaleMin);
-                              const comparisonLeft = ((Math.min(comparison.ci_low, comparison.ci_high) - scaleMin) / scaleRange) * 100;
-                              const comparisonWidth =
-                                (Math.abs(comparison.ci_high - comparison.ci_low) / scaleRange) * 100;
-                              const zeroPosition = ((0 - scaleMin) / scaleRange) * 100;
-                              const pointPosition = ((comparison.relative_lift - scaleMin) / scaleRange) * 100;
-                              return (
-                                <div key={comparison.variant} className="comparison-stack">
-                                  <div className="lift-label">
-                                    {getVariationLabel(comparison.variant, variations)} vs{" "}
-                                    {getVariationLabel(comparison.baseline_variant, variations)}:{" "}
-                                    {formatValue(comparison.relative_lift, "percent")}
+                                <div className="metric-name-row">
+                                  <div>
+                                    <div className="table-primary">{row.metric_label}</div>
+                                    <div className="table-secondary">
+                                      {row.source_type === "conversion_event"
+                                        ? `Event: ${row.source_name} • ${row.window_days}d window`
+                                        : `Metric: ${row.source_name} • ${row.window_days}d window • P${row.winsorize_percentile}`}
+                                    </div>
+                                    {row.dimension_name && row.dimension_value ? (
+                                      <div className="table-secondary">
+                                        {row.dimension_name}: {row.dimension_value}
+                                      </div>
+                                    ) : null}
+                                    {row.has_experiment_override ? (
+                                      <div className="row-flags">
+                                        <span className="mini-badge mini-badge-cyan">Experiment override</span>
+                                      </div>
+                                    ) : null}
+                                    {row.source_type === "conversion_event" ? (
+                                      <button
+                                        className="inline-link inline-link-button"
+                                        onClick={() => setSqlMetricId((current) => (current === row.metric_id ? null : row.metric_id))}
+                                      >
+                                        {sqlMetricId === row.metric_id ? "Hide SQL" : "View SQL"}
+                                      </button>
+                                    ) : null}
                                   </div>
-                                  <div className="lift-track">
-                                    <div className="lift-zero" style={{ left: `${zeroPosition}%` }} />
-                                    <div className="lift-range" style={{ left: `${comparisonLeft}%`, width: `${comparisonWidth}%` }} />
-                                    <div
-                                      className={`lift-point ${comparison.relative_lift >= 0 ? "positive" : "negative"}`}
-                                      style={{ left: `${pointPosition}%` }}
-                                    />
-                                  </div>
-                                  <div className="table-secondary">
-                                    CI {formatValue(comparison.ci_low, "percent")} to {formatValue(comparison.ci_high, "percent")}
-                                  </div>
+                                  <button
+                                    className="icon-button"
+                                    onClick={() => openEditor(row.metric_id, row.window_days, row.winsorize_percentile)}
+                                    aria-label={`Edit ${row.metric_label}`}
+                                  >
+                                    ✎
+                                  </button>
                                 </div>
-                              );
-                            })() : <div className="table-secondary">No treatment comparison available.</div>}
-                          </div>
-                        </td>
-                        {!isGuardrail && (
-                          <td>
-                            <div className="pvalue-stack">
-                              {selectedComparison && selectedComparison.adjusted_p_value !== null ? (
-                                <div className="pvalue-line">
-                                  {getVariationLabel(selectedComparison.variant, variations)}: {formatPValue(selectedComparison.adjusted_p_value)}
+                              </td>
+                              {[baselineVariant, activeTreatment].map((variation) => (
+                                <td key={variation}>
+                                  <div className="variant-cell">
+                                    <div className="variant-primary">
+                                      {variation
+                                        ? formatValue(row.variation_stats[variation]?.average_value ?? row.variation_values[variation] ?? 0, row.value_format)
+                                        : "n/a"}
+                                    </div>
+                                    <div className="variant-stat-list">
+                                      <div className="variant-stat-line">
+                                        <span>Users</span>
+                                        <strong>{variation ? formatCount(row.variation_stats[variation]?.user_count ?? 0) : "n/a"}</strong>
+                                      </div>
+                                      <div className="variant-stat-line">
+                                        <span>Conversions</span>
+                                        <strong>{variation ? formatCount(row.variation_stats[variation]?.conversion_count ?? 0) : "n/a"}</strong>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </td>
+                              ))}
+                              <td>
+                                <div className="lift-cell">
+                                  {selectedComparison ? (() => {
+                                    const comparison = selectedComparison;
+                                    const scaleMin = Math.min(comparison.ci_low, comparison.ci_high, 0);
+                                    const scaleMax = Math.max(comparison.ci_low, comparison.ci_high, 0);
+                                    const scaleRange = Math.max(0.0001, scaleMax - scaleMin);
+                                    const comparisonLeft = ((Math.min(comparison.ci_low, comparison.ci_high) - scaleMin) / scaleRange) * 100;
+                                    const comparisonWidth =
+                                      (Math.abs(comparison.ci_high - comparison.ci_low) / scaleRange) * 100;
+                                    const zeroPosition = ((0 - scaleMin) / scaleRange) * 100;
+                                    const pointPosition = ((comparison.relative_lift - scaleMin) / scaleRange) * 100;
+                                    return (
+                                      <div key={comparison.variant} className="comparison-stack">
+                                        <div className="lift-label">
+                                          {getVariationLabel(comparison.variant, variations)} vs{" "}
+                                          {getVariationLabel(comparison.baseline_variant, variations)}:{" "}
+                                          {formatValue(comparison.relative_lift, "percent")}
+                                        </div>
+                                        <div className="lift-track">
+                                          <div className="lift-zero" style={{ left: `${zeroPosition}%` }} />
+                                          <div className="lift-range" style={{ left: `${comparisonLeft}%`, width: `${comparisonWidth}%`, backgroundColor: ciColor }} />
+                                          <div
+                                            className={`lift-point ${comparison.relative_lift >= 0 ? "positive" : "negative"}`}
+                                            style={{ left: `${pointPosition}%` }}
+                                          />
+                                        </div>
+                                        <div className="table-secondary">
+                                          CI {formatValue(comparison.ci_low, "percent")} to {formatValue(comparison.ci_high, "percent")}
+                                        </div>
+                                      </div>
+                                    );
+                                  })() : <div className="table-secondary">No treatment comparison available.</div>}
                                 </div>
-                              ) : (
-                                <div className="pvalue-line">n/a</div>
+                              </td>
+                              {!isGuardrail && (
+                                <td>
+                                  <div className="pvalue-stack">
+                                    {selectedComparison && selectedComparison.adjusted_p_value !== null ? (
+                                      <div className="pvalue-line" style={{ backgroundColor: pvalueBg, color: pvalueColor, padding: pvalueBg !== "transparent" ? "2px 6px" : "0", borderRadius: "4px", display: "inline-block" }}>
+                                        {getVariationLabel(selectedComparison.variant, variations)}: {formatPValue(selectedComparison.adjusted_p_value)}
+                                      </div>
+                                    ) : (
+                                      <div className="pvalue-line">n/a</div>
+                                    )}
+                                  </div>
+                                </td>
                               )}
-                            </div>
-                          </td>
-                        )}
-                        <td>
-                          <button className="icon-button icon-button-danger" onClick={() => removeMetric(row.metric_id)} aria-label={`Remove ${row.metric_label}`}>
-                            X
-                          </button>
-                        </td>
+                              <td>
+                                <button className="icon-button icon-button-danger" onClick={() => removeMetric(row.metric_id)} aria-label={`Remove ${row.metric_label}`}>
+                                  X
+                                </button>
+                              </td>
                             </tr>
                             {row.source_type === "conversion_event" && sqlMetricId === row.metric_id && row.analysis_sql ? (
                               <tr key={`${row.metric_id}-sql`} className="sql-row">
@@ -552,12 +562,12 @@ export function ExperimentView({ experimentId }: { experimentId: string }) {
         {analysis ? (
           <>
             <p className="srm-line">
-            SRM check: {analysis.srm.critical ? "critical mismatch detected" : "no critical mismatch detected"} with a
-            p-value of {formatPValue(analysis.srm.p_value)} across{" "}
-            {Object.entries(analysis.srm.counts)
-              .map(([variation, count]) => `${getVariationLabel(variation, variations)} ${count}`)
-              .join(", ")}
-            .
+              SRM check: {analysis.srm.critical ? "critical mismatch detected" : "no critical mismatch detected"} with a
+              p-value of {formatPValue(analysis.srm.p_value)} across{" "}
+              {Object.entries(analysis.srm.counts)
+                .map(([variation, count]) => `${getVariationLabel(variation, variations)} ${count}`)
+                .join(", ")}
+              .
             </p>
             {analysis.multiple_testing_correction_applied ? (
               <p className="srm-line">
@@ -621,6 +631,12 @@ function ExperimentChecksPanel({
           <h3>Experiment Checks</h3>
         </div>
       </div>
+      {analysis.has_multiple_exposures && (
+        <div className="warning-banner" style={{ background: "rgba(239, 68, 68, 0.15)", color: "var(--red)", padding: "16px", borderRadius: "8px", marginBottom: "24px" }}>
+          <strong>⚠️ Multiple Exposures Detected</strong>
+          <p style={{ margin: "4px 0 0 0" }}>{analysis.multiple_exposures_count} user(s) were exposed to more than one variation in this experiment. This violates the stable unit treatment value assumption (SUTVA) and may invalidate these results.</p>
+        </div>
+      )}
       <div className="checks-grid">
         {analysis.dimension_balance.map((dimensionCheck) => (
           <DimensionDistributionCard
@@ -736,13 +752,17 @@ function MetricSeriesCard({
   const height = 220;
   const padding = { top: 20, right: 20, bottom: 32, left: 44 };
   const points = row.time_series;
-  const flattened = points.flatMap((point) => variations.map((variation) => point.variation_values[variation] ?? 0));
+  const treatmentVariants = variations.filter((v) => v !== row.baseline_variant);
+
+  const flattened = points.flatMap((point) =>
+    (point.comparisons || []).flatMap((c) => [c.ci_low, c.ci_high, c.relative_lift])
+  );
   const minValue = Math.min(...flattened, 0);
   const maxValue = Math.max(...flattened, 0.0001);
   const valueRange = Math.max(0.0001, maxValue - minValue);
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
-  const lineColors = ["#58b8ff", "#22c55e", "#f59e0b", "#8b5cf6", "#ef4444"];
+  const lineColors = ["#22c55e", "#f59e0b", "#8b5cf6", "#ef4444", "#58b8ff"];
   const [activePointIndex, setActivePointIndex] = useState<number | null>(null);
 
   const pointToSvg = (value: number, index: number) => {
@@ -760,12 +780,13 @@ function MetricSeriesCard({
         (points.length === 1 ? chartWidth / 2 : (activePointIndex / Math.max(1, points.length - 1)) * chartWidth)
       : null;
   const activeY =
-    activePointIndex !== null && activePoint
+    activePointIndex !== null && activePoint && treatmentVariants.length > 0
       ? Math.min(
-          ...variations.map((variation) => {
-            const value = activePoint.variation_values[variation] ?? 0;
+          ...treatmentVariants.map((variation) => {
+            const comp = activePoint.comparisons?.find((c) => c.variant === variation);
+            const value = comp ? comp.relative_lift : 0;
             return padding.top + (1 - (value - minValue) / valueRange) * chartHeight;
-          }),
+          })
         )
       : null;
 
@@ -773,7 +794,7 @@ function MetricSeriesCard({
     <section className="panel timeseries-card">
       <div className="panel-header">
         <div>
-          <div className="section-tag">Metric</div>
+          <div className="section-tag">Metric Lift</div>
           <h3>{row.metric_label}</h3>
           <div className="table-secondary">
             {row.source_type === "conversion_event"
@@ -801,6 +822,17 @@ function MetricSeriesCard({
             const y = padding.top + tick * chartHeight;
             return <line key={tick} x1={padding.left} y1={y} x2={width - padding.right} y2={y} className="timeseries-gridline" />;
           })}
+          
+          <line
+            x1={padding.left}
+            y1={padding.top + (1 - (0 - minValue) / valueRange) * chartHeight}
+            x2={width - padding.right}
+            y2={padding.top + (1 - (0 - minValue) / valueRange) * chartHeight}
+            stroke="var(--muted-2)"
+            strokeDasharray="4 4"
+            strokeWidth="1.5"
+          />
+
           {activeX !== null ? (
             <line
               x1={activeX}
@@ -820,20 +852,34 @@ function MetricSeriesCard({
               </text>
             );
           })}
-          {variations.map((variation, variationIndex) => {
+          {treatmentVariants.map((variation, variationIndex) => {
+            const color = lineColors[variationIndex % lineColors.length];
             const polylinePoints = points
-              .map((point, index) => pointToSvg(point.variation_values[variation] ?? 0, index))
+              .map((point, index) => {
+                const comp = point.comparisons?.find((c) => c.variant === variation);
+                return pointToSvg(comp ? comp.relative_lift : 0, index);
+              })
               .join(" ");
+
+            const polygonPoints = [
+              ...points.map((point, index) => {
+                const comp = point.comparisons?.find((c) => c.variant === variation);
+                return pointToSvg(comp ? comp.ci_high : 0, index);
+              }),
+              ...points.slice().reverse().map((point, reversedIndex) => {
+                const index = points.length - 1 - reversedIndex;
+                const comp = point.comparisons?.find((c) => c.variant === variation);
+                return pointToSvg(comp ? comp.ci_low : 0, index);
+              }),
+            ].join(" ");
+
             return (
               <g key={variation}>
-                <polyline
-                  fill="none"
-                  stroke={lineColors[variationIndex % lineColors.length]}
-                  strokeWidth="2.5"
-                  points={polylinePoints}
-                />
+                <polygon fill={color} fillOpacity="0.1" points={polygonPoints} />
+                <polyline fill="none" stroke={color} strokeWidth="2.5" points={polylinePoints} />
                 {points.map((point, index) => {
-                  const value = point.variation_values[variation] ?? 0;
+                  const comp = point.comparisons?.find((c) => c.variant === variation);
+                  const value = comp ? comp.relative_lift : 0;
                   const [cx, cy] = pointToSvg(value, index).split(",").map(Number);
                   return (
                     <circle
@@ -841,7 +887,7 @@ function MetricSeriesCard({
                       cx={cx}
                       cy={cy}
                       r={activePointIndex === index ? 5 : 4}
-                      fill={lineColors[variationIndex % lineColors.length]}
+                      fill={color}
                       className="timeseries-point"
                       onMouseEnter={() => setActivePointIndex(index)}
                     />
@@ -851,32 +897,45 @@ function MetricSeriesCard({
             );
           })}
         </svg>
-        {activePoint && activeX !== null && activeY !== null ? (
+        {activePoint && activeX !== null && activeY !== null && treatmentVariants.length > 0 ? (
           <div
             className="timeseries-tooltip"
             style={{
-              left: `${Math.min(width - 180, Math.max(12, activeX + 14))}px`,
+              left: `${Math.min(width - 250, Math.max(12, activeX + 14))}px`,
               top: `${Math.max(12, activeY - 8)}px`,
+              width: '230px',
             }}
           >
             <div className="timeseries-tooltip-date">{formatShortDate(activePoint.date)}</div>
             <div className="timeseries-tooltip-list">
-              {variations.map((variation, variationIndex) => (
-                <div key={variation} className="timeseries-tooltip-line">
-                  <span className="timeseries-swatch" style={{ background: lineColors[variationIndex % lineColors.length] }} />
-                  <span>{getVariationLabel(variation, variations)}</span>
-                  <strong>{formatValue(activePoint.variation_values[variation] ?? 0, row.value_format)}</strong>
-                </div>
-              ))}
+              {treatmentVariants.map((variation, variationIndex) => {
+                const comp = activePoint.comparisons?.find((c) => c.variant === variation);
+                if (!comp) return null;
+                const color = lineColors[variationIndex % lineColors.length];
+                return (
+                  <div key={variation} style={{ display: "flex", flexDirection: "column", gap: "2px", marginBottom: "8px" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        <span className="timeseries-swatch" style={{ background: color }} />
+                        <span>{getVariationLabel(variation, variations)} vs {getVariationLabel(row.baseline_variant, variations)}</span>
+                      </div>
+                      <strong>{formatValue(comp.relative_lift, "percent")}</strong>
+                    </div>
+                    <div style={{ fontSize: "0.8rem", color: "var(--muted)", paddingLeft: "20px" }}>
+                      CI {formatValue(comp.ci_low, "percent")} to {formatValue(comp.ci_high, "percent")}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         ) : null}
       </div>
       <div className="timeseries-legend">
-        {variations.map((variation, variationIndex) => (
+        {treatmentVariants.map((variation, variationIndex) => (
           <div key={variation} className="timeseries-legend-item">
             <span className="timeseries-swatch" style={{ background: lineColors[variationIndex % lineColors.length] }} />
-            <span>{getVariationLabel(variation, variations)}</span>
+            <span>{getVariationLabel(variation, variations)} vs {getVariationLabel(row.baseline_variant, variations)}</span>
           </div>
         ))}
       </div>

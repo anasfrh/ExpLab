@@ -41,6 +41,7 @@ class Simulator:
         days: int = 30,
         user_prefix: str = "user",
         num_variants: int = 2,
+        multiple_exposures_ratio: float = 0.0,
     ) -> SimulationSummary:
         start_date = date.today() - timedelta(days=days - 1)
         all_dates = [start_date + timedelta(days=offset) for offset in range(days)]
@@ -64,6 +65,12 @@ class Simulator:
             experiments_rows.append(
                 (user_id, experiment_id, variation, datetime.combine(inception_date, datetime.min.time()).isoformat())
             )
+            if multiple_exposures_ratio > 0.0 and self.rng.random() < multiple_exposures_ratio:
+                other_variation = "Variant 2" if variation == "Variant 1" else "Variant 1"
+                if other_variation != variation:
+                    experiments_rows.append(
+                        (user_id, experiment_id, other_variation, datetime.combine(inception_date + timedelta(days=1), datetime.min.time()).isoformat())
+                    )
 
             revenue_values = self.rng.lognormal(mean=2.2, sigma=0.9, size=days - inception_offset)
             revenue_values = revenue_values * (1.0 + self._variant_lift_multiplier(variation, target_lift))
@@ -78,6 +85,9 @@ class Simulator:
                 metrics_rows.append((user_id, "sessions", float(session_count), day_date.isoformat()))
                 metrics_rows.append((user_id, "gross_profit", round(rounded_revenue * 0.37, 2), day_date.isoformat()))
                 metrics_rows.append((user_id, "items_per_order", float(max(order_count, self.rng.poisson(lam=1.4))), day_date.isoformat()))
+                latency = max(10.0, float(self.rng.normal(250, 50)))
+                latency *= 1.0 + self._variant_lift_multiplier(variation, target_lift)
+                metrics_rows.append((user_id, "latency", round(latency, 2), day_date.isoformat()))
 
                 event_probability = min(0.92, 0.16 + min(rounded_revenue / 120.0, 0.52))
                 if self.rng.random() < event_probability:
@@ -159,6 +169,9 @@ class Simulator:
                 metric_rows.append((row["user_id"], "sessions", float(max(1, self.rng.poisson(lam=3.2))), next_date.isoformat()))
                 metric_rows.append((row["user_id"], "gross_profit", round(rounded_value * 0.37, 2), next_date.isoformat()))
                 metric_rows.append((row["user_id"], "items_per_order", float(max(1, self.rng.poisson(lam=1.4))), next_date.isoformat()))
+                latency = max(10.0, float(self.rng.normal(250, 50)))
+                latency *= 1.0 + self._variant_lift_multiplier(str(row["variation_id"]), target_lift)
+                metric_rows.append((row["user_id"], "latency", round(latency, 2), next_date.isoformat()))
 
                 event_probability = min(0.92, 0.16 + min(rounded_value / 120.0, 0.52))
                 if self.rng.random() < event_probability:
@@ -221,6 +234,27 @@ class Simulator:
                 "user_prefix": "sgn",
                 "num_variants": 4,
             },
+            {
+                "num_users": 3500,
+                "target_lift": -0.15,
+                "srm_skew": False,
+                "experiment_id": "exp_latency_v1",
+                "metric_name": "latency",
+                "conversion_event_name": "purchase",
+                "user_prefix": "lat",
+                "num_variants": 2,
+            },
+            {
+                "num_users": 2000,
+                "target_lift": 0.06,
+                "srm_skew": False,
+                "experiment_id": "exp_multiple_exposures_v1",
+                "metric_name": "revenue",
+                "conversion_event_name": "purchase",
+                "user_prefix": "mexp",
+                "num_variants": 2,
+                "multiple_exposures_ratio": 0.05,
+            },
         ]
         return [self.seed_experiment(**scenario) for scenario in scenarios]
 
@@ -229,7 +263,7 @@ class Simulator:
             variant_index = int(variation.split()[-1]) - 1
         except (ValueError, IndexError):
             variant_index = 0
-        return max(0.0, variant_index * target_lift)
+        return variant_index * target_lift
 
     def _assignment_weights(self, *, num_variants: int, srm_skew: bool) -> list[float]:
         if not srm_skew:

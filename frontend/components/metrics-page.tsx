@@ -27,12 +27,13 @@ export function MetricsPage() {
     refresh();
   }, []);
 
-  const updateMetric = (metricId: string, window: number, winsor: number) => {
+  const updateMetric = (metricId: string, window: number, winsor: number, direction: "up" | "down") => {
     startTransition(async () => {
       try {
         await updateMetricDefaults(metricId, {
           default_window_days: window,
           default_winsorize_percentile: winsor,
+          desired_direction: direction,
         });
         refresh();
         setStatus("Metric defaults updated.");
@@ -113,16 +114,18 @@ function MetricSettingsRow({
   pending,
 }: {
   metric: MetricCatalogItem;
-  onSave: (metricId: string, window: number, winsor: number) => void;
+  onSave: (metricId: string, window: number, winsor: number, direction: "up" | "down") => void;
   pending: boolean;
 }) {
   const [window, setWindow] = useState(metric.default_window_days);
   const [winsor, setWinsor] = useState(metric.default_winsorize_percentile);
+  const [direction, setDirection] = useState<"up" | "down">(metric.desired_direction);
 
   useEffect(() => {
     setWindow(metric.default_window_days);
     setWinsor(metric.default_winsorize_percentile);
-  }, [metric.default_window_days, metric.default_winsorize_percentile]);
+    setDirection(metric.desired_direction);
+  }, [metric.default_window_days, metric.default_winsorize_percentile, metric.desired_direction]);
 
   return (
     <div className="settings-row">
@@ -143,7 +146,14 @@ function MetricSettingsRow({
           Winsor
           <input type="number" min={50} max={100} value={winsor} onChange={(e) => setWinsor(Number(e.target.value))} />
         </label>
-        <button className="button button-primary" disabled={pending} onClick={() => onSave(metric.metric_id, window, winsor)}>
+        <label>
+          Direction
+          <select value={direction} onChange={(e) => setDirection(e.target.value as "up" | "down")}>
+            <option value="up">Up</option>
+            <option value="down">Down</option>
+          </select>
+        </label>
+        <button className="button button-primary" disabled={pending} onClick={() => onSave(metric.metric_id, window, winsor, direction)}>
           Save
         </button>
       </div>

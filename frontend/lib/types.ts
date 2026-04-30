@@ -13,7 +13,8 @@ export type MetricCatalogItem = {
   value_format: "number" | "currency" | "percent";
   default_window_days: number;
   default_winsorize_percentile: number;
-  sql_query: string;
+  desired_direction: "up" | "down";
+  sql_query?: string;
 };
 
 export type ExperimentMetric = {
@@ -71,16 +72,26 @@ export type MetricRow = {
     variation_values: {
       [variation: string]: number;
     };
+    comparisons?: Array<{
+      baseline_variant: string;
+      variant: string;
+      relative_lift: number;
+      ci_low: number;
+      ci_high: number;
+      p_value: number;
+      adjusted_p_value: number;
+    }>;
   }>;
   dimension_name: "country_code" | "mcc" | null;
   dimension_value?: string;
   source_type: "metric" | "conversion_event";
   source_name: string;
-  analysis_sql: string | null;
+  analysis_sql: string;
   window_days: number;
   winsorize_percentile: number | null;
   supports_winsorization: boolean;
   has_experiment_override: boolean;
+  desired_direction: "up" | "down";
   baseline_variant: string;
   comparisons: Array<{
     baseline_variant: string;
@@ -120,7 +131,9 @@ export type AnalyzeResponse = {
   variations: string[];
   multiple_testing_correction_applied: boolean;
   multiple_testing_method: "bonferroni" | "benjamini-hochberg";
-  split_dimension: "country_code" | "mcc" | null;
+  split_dimension: string | null;
+  has_multiple_exposures: boolean;
+  multiple_exposures_count: number;
 };
 
 export type SampleSizeResponse = {

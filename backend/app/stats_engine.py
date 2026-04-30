@@ -187,6 +187,7 @@ class StatsEngine:
             else:
                 row["primary_comparison"] = None
 
+        multiple_exposures_check = self._multiple_exposures_check(experiment_users)
         return {
             "metric_rows": metric_rows,
             "srm": self._srm_check(experiment_users),
@@ -195,18 +196,20 @@ class StatsEngine:
             "multiple_testing_correction_applied": len(test_slots) > 1,
             "multiple_testing_method": multiple_testing_method,
             "split_dimension": split_dimension,
+            "has_multiple_exposures": multiple_exposures_check["has_multiple_exposures"],
+            "multiple_exposures_count": multiple_exposures_check["multiple_exposures_count"],
         }
 
     def list_metrics(self) -> list[dict[str, Any]]:
         rows = self.connection.execute(
             """
-            SELECT metric_id, label, source_name, value_format, default_window_days, default_winsorize_percentile
+            SELECT metric_id, label, source_name, value_format, default_window_days, default_winsorize_percentile, desired_direction
             FROM metric_definitions
             WHERE source_type = 'metric'
             ORDER BY label
             """
         ).fetchall()
-        sql_query = "SELECT metric_id, label, source_name, value_format, default_window_days, default_winsorize_percentile FROM metric_definitions WHERE source_type = 'metric' ORDER BY label"
+        sql_query = "SELECT metric_id, label, source_name, value_format, default_window_days, default_winsorize_percentile, desired_direction FROM metric_definitions WHERE source_type = 'metric' ORDER BY label"
         return [{"sql_query": sql_query, **dict(row)} for row in rows]
 
     def list_conversion_events(self) -> list[dict[str, Any]]:
@@ -238,14 +241,14 @@ class StatsEngine:
         metrics = self.get_metric_definitions(experiment_id=experiment_id)
         return [metric.model_dump() for metric in metrics]
 
-    def update_metric_defaults(self, *, metric_id: str, window_days: int, winsorize_percentile: float) -> None:
+    def update_metric_defaults(self, *, metric_id: str, window_days: int, winsorize_percentile: float, desired_direction: str = "up") -> None:
         self.connection.execute(
             """
             UPDATE metric_definitions
-            SET default_window_days = ?, default_winsorize_percentile = ?
+            SET default_window_days = ?, default_winsorize_percentile = ?, desired_direction = ?
             WHERE metric_id = ?
             """,
-            (window_days, winsorize_percentile, metric_id),
+            (window_days, winsorize_percentile, desired_direction, metric_id),
         )
         self.connection.commit()
 
@@ -416,6 +419,7 @@ class StatsEngine:
                 m.source_type,
                 m.source_name,
                 m.supports_winsorization,
+                m.desired_direction,
                 CASE WHEN o.metric_id IS NOT NULL THEN 1 ELSE 0 END AS has_experiment_override,
                 COALESCE(o.window_days, CASE
                     WHEN m.source_type = 'conversion_event' THEN s.default_window_days
@@ -448,6 +452,7 @@ class StatsEngine:
                 default_winsorize_percentile=row["resolved_winsorize_percentile"],
                 supports_winsorization=bool(row["supports_winsorization"]),
                 has_experiment_override=bool(row["has_experiment_override"]),
+                desired_direction=row["desired_direction"],
             )
             for row in rows
         ]
@@ -605,6 +610,7 @@ class StatsEngine:
         row["winsorize_percentile"] = metric.default_winsorize_percentile if metric.supports_winsorization else None
         row["supports_winsorization"] = metric.supports_winsorization
         row["has_experiment_override"] = metric.has_experiment_override
+        row["desired_direction"] = metric.desired_direction
         row["analysis_sql"] = self._analysis_sql(
             experiment_id=experiment_id,
             day_range=metric.default_window_days,
@@ -651,21 +657,34 @@ class StatsEngine:
                 date_rows = [row for row in date_rows if str(row[split_dimension]) == split_value]
             if not date_rows:
                 continue
-            grouped_arrays = {
-                variation: np.array([row["metric_value"] for row in date_rows if row["variation_id"] == variation], dtype=float)
-                for variation in ordered_variations
-            }
-            if winsorize_percentile is not None:
-                threshold = float(np.percentile(np.concatenate(list(grouped_arrays.values())), winsorize_percentile))
+            
+            try:
+                date_result = self._run_group_test(date_rows, winsorize_percentile, skip_tests=False)
+                comparisons = date_result.get("comparisons", [])
+                variation_values = date_result.get("variation_values", {})
+            except ValueError:
+                comparisons = []
                 grouped_arrays = {
-                    variation: np.clip(values, None, threshold) for variation, values in grouped_arrays.items()
+                    variation: np.array([row["metric_value"] for row in date_rows if row["variation_id"] == variation], dtype=float)
+                    for variation in ordered_variations
                 }
+                if winsorize_percentile is not None:
+                    try:
+                        threshold = float(np.percentile(np.concatenate(list(grouped_arrays.values())), winsorize_percentile))
+                        grouped_arrays = {
+                            variation: np.clip(values, None, threshold) for variation, values in grouped_arrays.items()
+                        }
+                    except IndexError:
+                        pass
+                variation_values = {
+                    variation: float(np.mean(values)) if len(values) > 0 else 0.0 for variation, values in grouped_arrays.items()
+                }
+
             series.append(
                 {
                     "date": bucket_date,
-                    "variation_values": {
-                        variation: float(np.mean(values)) for variation, values in grouped_arrays.items()
-                    },
+                    "variation_values": variation_values,
+                    "comparisons": comparisons,
                 }
             )
         return series
@@ -740,3 +759,13 @@ class StatsEngine:
                 }
             )
         return results
+
+    def _multiple_exposures_check(self, dataset: list[sqlite3.Row]) -> dict[str, object]:
+        user_variants = {}
+        for row in dataset:
+            user_variants.setdefault(row["user_id"], set()).add(row["variation_id"])
+        multiple_exposed = [u for u, v in user_variants.items() if len(v) > 1]
+        return {
+            "has_multiple_exposures": len(multiple_exposed) > 0,
+            "multiple_exposures_count": len(multiple_exposed),
+        }

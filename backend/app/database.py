@@ -56,7 +56,8 @@ def init_db() -> None:
                 value_format TEXT NOT NULL,
                 default_window_days INTEGER NOT NULL,
                 default_winsorize_percentile REAL NOT NULL,
-                supports_winsorization INTEGER NOT NULL DEFAULT 1
+                supports_winsorization INTEGER NOT NULL DEFAULT 1,
+                desired_direction TEXT NOT NULL DEFAULT 'up'
             );
 
             CREATE TABLE IF NOT EXISTS conversion_event_settings (
@@ -91,8 +92,8 @@ def seed_catalog(connection: sqlite3.Connection) -> None:
             """
             INSERT INTO metric_definitions(
                 metric_id, label, source_type, source_name, sql_expression, value_format,
-                default_window_days, default_winsorize_percentile, supports_winsorization
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                default_window_days, default_winsorize_percentile, supports_winsorization, desired_direction
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -105,6 +106,7 @@ def seed_catalog(connection: sqlite3.Connection) -> None:
                     14,
                     99.0,
                     1,
+                    "up",
                 ),
                 (
                     "orders",
@@ -116,6 +118,7 @@ def seed_catalog(connection: sqlite3.Connection) -> None:
                     14,
                     99.0,
                     1,
+                    "up",
                 ),
                 (
                     "sessions",
@@ -127,6 +130,7 @@ def seed_catalog(connection: sqlite3.Connection) -> None:
                     14,
                     99.0,
                     1,
+                    "up",
                 ),
                 (
                     "gross_profit",
@@ -138,6 +142,7 @@ def seed_catalog(connection: sqlite3.Connection) -> None:
                     14,
                     99.0,
                     1,
+                    "up",
                 ),
                 (
                     "items_per_order",
@@ -149,6 +154,7 @@ def seed_catalog(connection: sqlite3.Connection) -> None:
                     14,
                     99.0,
                     1,
+                    "up",
                 ),
                 (
                     "conversion_purchase",
@@ -160,6 +166,7 @@ def seed_catalog(connection: sqlite3.Connection) -> None:
                     14,
                     99.0,
                     0,
+                    "up",
                 ),
                 (
                     "conversion_signup_complete",
@@ -171,6 +178,7 @@ def seed_catalog(connection: sqlite3.Connection) -> None:
                     7,
                     100.0,
                     0,
+                    "up",
                 ),
                 (
                     "conversion_add_to_cart",
@@ -182,6 +190,19 @@ def seed_catalog(connection: sqlite3.Connection) -> None:
                     5,
                     100.0,
                     0,
+                    "up",
+                ),
+                (
+                    "latency",
+                    "Latency (ms)",
+                    "metric",
+                    "latency",
+                    "SUM(CASE WHEN m.metric_name = 'latency' THEN m.value ELSE 0 END) / NULLIF(SUM(CASE WHEN m.metric_name = 'latency' THEN 1 ELSE 0 END), 0)",
+                    "number",
+                    14,
+                    99.0,
+                    1,
+                    "down",
                 ),
             ],
         )
