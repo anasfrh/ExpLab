@@ -89,7 +89,7 @@ export function analyze(payload: {
   primary_metric_ids: string[];
   secondary_metric_ids: string[];
   guardrail_metric_ids: string[];
-  split_dimension?: "country_code" | "mcc";
+  split_dimension?: string;
   multiple_testing_method?: "bonferroni" | "benjamini-hochberg";
 }) {
   return request<AnalyzeResponse>("/analyze", payload);

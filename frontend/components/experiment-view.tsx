@@ -64,7 +64,7 @@ export function ExperimentView({ experimentId }: { experimentId: string }) {
   const [sqlMetricId, setSqlMetricId] = useState<string | null>(null);
   const [resultsView, setResultsView] = useState<"table" | "timeseries">("table");
   const [showExperimentChecks, setShowExperimentChecks] = useState(false);
-  const [splitDimension, setSplitDimension] = useState<"none" | "country_code" | "mcc">("none");
+  const [splitDimension, setSplitDimension] = useState<string>("none");
   const [multipleTestingMethod, setMultipleTestingMethod] = useState<"bonferroni" | "benjamini-hochberg">("benjamini-hochberg");
   const [selectedTreatment, setSelectedTreatment] = useState<string>("");
   const [overrideWindow, setOverrideWindow] = useState(14);
@@ -215,6 +215,43 @@ export function ExperimentView({ experimentId }: { experimentId: string }) {
     });
   };
 
+  const exportCsv = () => {
+    if (!analysis) return;
+
+    const rows = [
+      ["Category", "Metric", "Dimension", "Dimension Value", "Variant", "Baseline", "Relative Lift", "CI Low", "CI High", "P-Value", "Is Stat Sig"]
+    ];
+
+    analysis.metric_rows.forEach((row) => {
+      row.comparisons.forEach((comparison) => {
+        const isStatSig = comparison.adjusted_p_value !== null && comparison.adjusted_p_value < 0.05;
+        rows.push([
+          `"${row.category}"`,
+          `"${row.metric_label}"`,
+          `"${row.dimension_name || "overall"}"`,
+          `"${row.dimension_value || "overall"}"`,
+          `"${getVariationLabel(comparison.variant, variations)}"`,
+          `"${getVariationLabel(comparison.baseline_variant, variations)}"`,
+          comparison.relative_lift.toString(),
+          comparison.ci_low.toString(),
+          comparison.ci_high.toString(),
+          comparison.adjusted_p_value?.toString() || "n/a",
+          isStatSig.toString(),
+        ]);
+      });
+    });
+
+    const csvContent = rows.map((e) => e.join(",")).join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `experiment_${experimentId}_results.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const availableToAdd = availableMetrics.filter((metric) => ![...primaryMetricIds, ...secondaryMetricIds, ...guardrailMetricIds].includes(metric.id));
   const metricColumnSpan = 6;
 
@@ -260,6 +297,9 @@ export function ExperimentView({ experimentId }: { experimentId: string }) {
             <button className="button button-secondary button-compact" disabled={isPending} onClick={handleAdvanceDay}>
               Advance Batch Day
             </button>
+            <button className="button button-secondary button-compact" disabled={!analysis} onClick={exportCsv}>
+              Export CSV
+            </button>
           </div>
         </div>
 
@@ -294,10 +334,11 @@ export function ExperimentView({ experimentId }: { experimentId: string }) {
               </select>
             </div>
             <div className="field" style={{ margin: 0 }}>
-              <select style={{ padding: "6px 10px", fontSize: "0.85rem" }} value={splitDimension} onChange={(e) => setSplitDimension(e.target.value as "none" | "country_code" | "mcc")}>
-                <option value="none">No dimension split</option>
-                <option value="country_code">Split by Country</option>
-                <option value="mcc">Split by MCC</option>
+              <select style={{ padding: "6px 10px", fontSize: "0.85rem" }} value={splitDimension} onChange={(e) => setSplitDimension(e.target.value)}>
+                <option value="none">None</option>
+                {analysis?.dimension_balance?.map((db) => (
+                  <option key={db.dimension} value={db.dimension}>Split by {db.dimension}</option>
+                ))}
               </select>
             </div>
             <div className="field" style={{ margin: 0 }}>
@@ -386,68 +427,119 @@ export function ExperimentView({ experimentId }: { experimentId: string }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {categoryRows.map((row) => {
-                        const selectedComparison =
-                          row.comparisons.find((comparison) => comparison.variant === activeTreatment) ?? row.primary_comparison;
-
-                        const isStatSig = selectedComparison && selectedComparison.adjusted_p_value !== null && selectedComparison.adjusted_p_value < 0.05;
-                        const isPositive = selectedComparison && (row.desired_direction === "down" ? selectedComparison.relative_lift < 0 : selectedComparison.relative_lift > 0);
-                        const isNegative = selectedComparison && (row.desired_direction === "down" ? selectedComparison.relative_lift > 0 : selectedComparison.relative_lift < 0);
-
-                        let ciColor = "var(--muted-2)";
-                        let pvalueBg = "transparent";
-                        let pvalueColor = "inherit";
-
-                        if (isStatSig && isPositive) {
-                          ciColor = "var(--green)";
-                          pvalueBg = "rgba(34, 197, 94, 0.15)";
-                          pvalueColor = "var(--green)";
-                        } else if (isStatSig && isNegative) {
-                          ciColor = "var(--red)";
-                          pvalueBg = "rgba(239, 68, 68, 0.15)";
-                          pvalueColor = "var(--red)";
-                        }
+                      {Object.values(
+                        categoryRows.reduce((acc, row) => {
+                          acc[row.metric_id] = acc[row.metric_id] || [];
+                          acc[row.metric_id].push(row);
+                          return acc;
+                        }, {} as Record<string, typeof categoryRows>)
+                      ).map((rows) => {
+                        const primaryRow = rows[0];
+                        const isSplit = rows.length > 1 || primaryRow.dimension_value;
 
                         return (
-                          <Fragment key={row.metric_id}>
-                            <tr>
-                              <td>
-                                <div className="metric-name-row">
-                                  <div>
-                                    <div className="table-primary">{row.metric_label}</div>
-                                    <div className="table-secondary">
-                                      {row.source_type === "conversion_event"
-                                        ? `Event: ${row.source_name} • ${row.window_days}d window`
-                                        : `Metric: ${row.source_name} • ${row.window_days}d window • P${row.winsorize_percentile}`}
-                                    </div>
-                                    {row.dimension_name && row.dimension_value ? (
+                          <Fragment key={primaryRow.metric_id}>
+                            {isSplit && (
+                              <tr className="metric-group-header">
+                                <td colSpan={isGuardrail ? 4 : 5} style={{ backgroundColor: "var(--bg-2)", borderBottom: "none", padding: "12px 16px 8px" }}>
+                                  <div className="metric-name-row" style={{ margin: 0 }}>
+                                    <div>
+                                      <div className="table-primary">{primaryRow.metric_label}</div>
                                       <div className="table-secondary">
-                                        {row.dimension_name}: {row.dimension_value}
+                                        {primaryRow.source_type === "conversion_event"
+                                          ? `Event: ${primaryRow.source_name} • ${primaryRow.window_days}d window`
+                                          : `Metric: ${primaryRow.source_name} • ${primaryRow.window_days}d window • P${primaryRow.winsorize_percentile}`}
                                       </div>
-                                    ) : null}
-                                    {row.has_experiment_override ? (
-                                      <div className="row-flags">
-                                        <span className="mini-badge mini-badge-cyan">Experiment override</span>
-                                      </div>
-                                    ) : null}
-                                    {row.source_type === "conversion_event" ? (
-                                      <button
-                                        className="inline-link inline-link-button"
-                                        onClick={() => setSqlMetricId((current) => (current === row.metric_id ? null : row.metric_id))}
-                                      >
-                                        {sqlMetricId === row.metric_id ? "Hide SQL" : "View SQL"}
-                                      </button>
-                                    ) : null}
+                                      {primaryRow.has_experiment_override ? (
+                                        <div className="row-flags" style={{ marginTop: "4px" }}>
+                                          <span className="mini-badge mini-badge-cyan">Experiment override</span>
+                                        </div>
+                                      ) : null}
+                                      {primaryRow.source_type === "conversion_event" ? (
+                                        <button
+                                          className="inline-link inline-link-button"
+                                          onClick={() => setSqlMetricId((current) => (current === primaryRow.metric_id ? null : primaryRow.metric_id))}
+                                        >
+                                          {sqlMetricId === primaryRow.metric_id ? "Hide SQL" : "View SQL"}
+                                        </button>
+                                      ) : null}
+                                    </div>
+                                    <button
+                                      className="icon-button"
+                                      onClick={() => openEditor(primaryRow.metric_id, primaryRow.window_days, primaryRow.winsorize_percentile)}
+                                      aria-label={`Edit ${primaryRow.metric_label}`}
+                                    >
+                                      ✎
+                                    </button>
                                   </div>
-                                  <button
-                                    className="icon-button"
-                                    onClick={() => openEditor(row.metric_id, row.window_days, row.winsorize_percentile)}
-                                    aria-label={`Edit ${row.metric_label}`}
-                                  >
-                                    ✎
-                                  </button>
-                                </div>
-                              </td>
+                                </td>
+                              </tr>
+                            )}
+                            {rows.map((row, index) => {
+                              const selectedComparison =
+                                row.comparisons.find((comparison) => comparison.variant === activeTreatment) ?? row.primary_comparison;
+
+                              const isStatSig = selectedComparison && selectedComparison.adjusted_p_value !== null && selectedComparison.adjusted_p_value < 0.05;
+                              const isPositive = selectedComparison && (row.desired_direction === "down" ? selectedComparison.relative_lift < 0 : selectedComparison.relative_lift > 0);
+                              const isNegative = selectedComparison && (row.desired_direction === "down" ? selectedComparison.relative_lift > 0 : selectedComparison.relative_lift < 0);
+
+                              let ciColor = "var(--muted-2)";
+                              let pvalueBg = "transparent";
+                              let pvalueColor = "inherit";
+
+                              if (isStatSig && isPositive) {
+                                ciColor = "var(--green)";
+                                pvalueBg = "rgba(34, 197, 94, 0.15)";
+                                pvalueColor = "var(--green)";
+                              } else if (isStatSig && isNegative) {
+                                ciColor = "var(--red)";
+                                pvalueBg = "rgba(239, 68, 68, 0.15)";
+                                pvalueColor = "var(--red)";
+                              }
+
+                              return (
+                                <Fragment key={`${row.metric_id}-${row.dimension_value ?? "overall"}`}>
+                                  <tr>
+                                    <td style={isSplit ? { paddingLeft: "32px", position: "relative" } : {}}>
+                                      {isSplit ? (
+                                        <>
+                                          <div style={{ position: "absolute", left: "14px", top: "50%", width: "10px", height: "1px", backgroundColor: "var(--border)", transform: "translateY(-50%)" }} />
+                                          <div style={{ position: "absolute", left: "14px", top: "0", width: "1px", height: index === rows.length - 1 ? "50%" : "100%", backgroundColor: "var(--border)" }} />
+                                          <div className="table-primary">{row.dimension_value || "Unknown"}</div>
+                                        </>
+                                      ) : (
+                                        <div className="metric-name-row">
+                                          <div>
+                                            <div className="table-primary">{row.metric_label}</div>
+                                            <div className="table-secondary">
+                                              {row.source_type === "conversion_event"
+                                                ? `Event: ${row.source_name} • ${row.window_days}d window`
+                                                : `Metric: ${row.source_name} • ${row.window_days}d window • P${row.winsorize_percentile}`}
+                                            </div>
+                                            {row.has_experiment_override ? (
+                                              <div className="row-flags">
+                                                <span className="mini-badge mini-badge-cyan">Experiment override</span>
+                                              </div>
+                                            ) : null}
+                                            {row.source_type === "conversion_event" ? (
+                                              <button
+                                                className="inline-link inline-link-button"
+                                                onClick={() => setSqlMetricId((current) => (current === row.metric_id ? null : row.metric_id))}
+                                              >
+                                                {sqlMetricId === row.metric_id ? "Hide SQL" : "View SQL"}
+                                              </button>
+                                            ) : null}
+                                          </div>
+                                          <button
+                                            className="icon-button"
+                                            onClick={() => openEditor(row.metric_id, row.window_days, row.winsorize_percentile)}
+                                            aria-label={`Edit ${row.metric_label}`}
+                                          >
+                                            ✎
+                                          </button>
+                                        </div>
+                                      )}
+                                    </td>
                               {[baselineVariant, activeTreatment].map((variation) => (
                                 <td key={variation}>
                                   <div className="variant-cell">
@@ -536,6 +628,9 @@ export function ExperimentView({ experimentId }: { experimentId: string }) {
                                 </td>
                               </tr>
                             ) : null}
+                                </Fragment>
+                              );
+                            })}
                           </Fragment>
                         );
                       })}

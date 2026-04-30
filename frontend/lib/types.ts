@@ -82,7 +82,7 @@ export type MetricRow = {
       adjusted_p_value: number;
     }>;
   }>;
-  dimension_name: "country_code" | "mcc" | null;
+  dimension_name: string | null;
   dimension_value?: string;
   source_type: "metric" | "conversion_event";
   source_name: string;

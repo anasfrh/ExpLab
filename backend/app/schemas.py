@@ -5,7 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-DimensionName = Literal["country_code", "mcc"]
+DimensionName = str
 
 
 class SimulationRequest(BaseModel):

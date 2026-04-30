@@ -8,8 +8,9 @@ import numpy as np
 from .database import get_connection
 
 
-COUNTRIES = ["US", "CA", "GB", "FR", "DE", "MA", "BR"]
-MCCS = ["5411", "5732", "5812", "4111", "4900", "5999"]
+COUNTRY_VALUES = ["US", "CA", "GB", "AU", "DE", "FR"]
+MCC_VALUES = ["5411", "5812", "5814", "5912", "4814", "5999"]
+OS_VALUES = ["iOS", "Android", "Windows", "macOS", "Linux"]
 
 
 @dataclass
@@ -49,19 +50,20 @@ class Simulator:
         assignment_weights = self._assignment_weights(num_variants=num_variants, srm_skew=srm_skew)
 
         user_ids = [f"{user_prefix}_{index:06d}" for index in range(1, num_users + 1)]
-        dimensions_rows: list[tuple[str, str, str]] = []
+        dimensions_rows: list[tuple[str, str, str, str]] = []
         experiments_rows: list[tuple[str, str, str, str]] = []
         metrics_rows: list[tuple[str, str, float, str]] = []
         conversion_rows: list[tuple[str, str, str]] = []
 
         for user_id in user_ids:
-            country_code = self.py_random.choice(COUNTRIES)
-            mcc = self.py_random.choice(MCCS)
+            country_code = self.rng.choice(COUNTRY_VALUES)
+            mcc = self.rng.choice(MCC_VALUES)
+            os_name = self.rng.choice(OS_VALUES)
             variation = self.py_random.choices(variant_labels, weights=assignment_weights, k=1)[0]
             inception_offset = int(self.rng.integers(0, max(1, days // 4)))
             inception_date = all_dates[inception_offset]
 
-            dimensions_rows.append((user_id, country_code, mcc))
+            dimensions_rows.append((user_id, country_code, mcc, os_name))
             experiments_rows.append(
                 (user_id, experiment_id, variation, datetime.combine(inception_date, datetime.min.time()).isoformat())
             )
@@ -107,7 +109,7 @@ class Simulator:
                     conversion_rows.append((user_id, "signup_complete", datetime.combine(day_date, datetime.min.time()).isoformat()))
 
         with get_connection() as connection:
-            connection.executemany("INSERT INTO dimensions(user_id, country_code, mcc) VALUES (?, ?, ?)", dimensions_rows)
+            connection.executemany("INSERT INTO dimensions(user_id, country_code, mcc, os) VALUES (?, ?, ?, ?)", dimensions_rows)
             connection.executemany(
                 "INSERT INTO experiments(user_id, experiment_id, variation_id, timestamp) VALUES (?, ?, ?, ?)",
                 experiments_rows,

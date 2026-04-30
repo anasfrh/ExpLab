@@ -28,8 +28,7 @@ inception AS (
 SELECT
     e.user_id,
     e.variation_id,
-    d.country_code,
-    d.mcc,
+    {dim_selects}
     i.d0,
     {sql_expression} AS metric_value
 FROM experiment_users e
@@ -40,7 +39,7 @@ LEFT JOIN conversion_events c ON c.user_id = e.user_id
   AND DATE(c.timestamp) BETWEEN i.d0 AND DATE(i.d0, '+' || :day_range || ' days')
 JOIN dimensions d ON d.user_id = e.user_id
 WHERE DATE(e.timestamp) >= i.d0
-GROUP BY e.user_id, e.variation_id, d.country_code, d.mcc, i.d0
+GROUP BY e.user_id, e.variation_id, {dim_group_by} i.d0
 """
 
 DAILY_USER_LEVEL_SQL = """
@@ -70,8 +69,7 @@ SELECT
     sd.bucket_date,
     e.user_id,
     e.variation_id,
-    d.country_code,
-    d.mcc,
+    {dim_selects}
     {sql_expression} AS metric_value
 FROM selected_dates sd
 JOIN experiment_users e ON 1=1
@@ -81,8 +79,8 @@ LEFT JOIN metrics m ON m.user_id = e.user_id
   AND m.date = sd.bucket_date
 LEFT JOIN conversion_events c ON c.user_id = e.user_id
   AND DATE(c.timestamp) = sd.bucket_date
-WHERE DATE(e.timestamp) >= i.d0
-GROUP BY sd.bucket_date, e.user_id, e.variation_id
+WHERE sd.bucket_date >= i.d0
+GROUP BY sd.bucket_date, e.user_id, e.variation_id{dim_group_by}
 ORDER BY sd.bucket_date, e.variation_id, e.user_id
 """
 
@@ -231,14 +229,18 @@ class StatsEngine:
         sql_query = "SELECT s.event_name, s.default_window_days, COUNT(c.timestamp) AS usage_count FROM conversion_event_settings s LEFT JOIN conversion_events c ON c.event_name = s.event_name GROUP BY s.event_name, s.default_window_days ORDER BY s.event_name"
         return [{"sql_query": sql_query, **dict(row)} for row in rows]
 
+    def _get_dimension_columns(self) -> list[str]:
+        columns = self.connection.execute("PRAGMA table_info(dimensions)").fetchall()
+        return [col["name"] for col in columns if col["name"] != "user_id"]
+
     def list_dimensions(self) -> list[dict[str, Any]]:
-        country_count = self.connection.execute("SELECT COUNT(DISTINCT country_code) AS count FROM dimensions").fetchone()["count"]
-        mcc_count = self.connection.execute("SELECT COUNT(DISTINCT mcc) AS count FROM dimensions").fetchone()["count"]
-        sql_query = "SELECT COUNT(DISTINCT country_code) AS country_count, COUNT(DISTINCT mcc) AS mcc_count FROM dimensions"
-        return [
-            {"dimension_name": "country_code", "distinct_values": country_count, "sql_query": sql_query},
-            {"dimension_name": "mcc", "distinct_values": mcc_count, "sql_query": sql_query},
-        ]
+        results = []
+        dim_cols = self._get_dimension_columns()
+        for col in dim_cols:
+            sql_query = f"SELECT COUNT(DISTINCT {col}) FROM dimensions"
+            count = self.connection.execute(sql_query).fetchone()[0]
+            results.append({"dimension_name": col, "distinct_values": count, "sql_query": sql_query})
+        return results
 
     def available_experiment_metrics(self, *, experiment_id: str) -> list[dict[str, Any]]:
         metrics = self.get_metric_definitions(experiment_id=experiment_id)
@@ -461,8 +463,10 @@ class StatsEngine:
         ]
 
     def _experiment_users_dataset(self, *, experiment_id: str) -> list[sqlite3.Row]:
-        query = """
-        SELECT e.user_id, e.variation_id, d.country_code, d.mcc
+        dim_cols = self._get_dimension_columns()
+        dim_selects = ", ".join(f"d.{col}" for col in dim_cols) if dim_cols else "''"
+        query = f"""
+        SELECT e.user_id, e.variation_id, {dim_selects}
         FROM experiments e
         JOIN dimensions d ON d.user_id = e.user_id
         WHERE e.experiment_id = :experiment_id
@@ -470,7 +474,14 @@ class StatsEngine:
         return self.connection.execute(query, {"experiment_id": experiment_id}).fetchall()
 
     def _metric_dataset(self, *, experiment_id: str, day_range: int, sql_expression: str) -> list[sqlite3.Row]:
-        query = USER_LEVEL_SQL.format(sql_expression=sql_expression)
+        dim_cols = self._get_dimension_columns()
+        dim_selects = "".join(f"d.{c},\n    " for c in dim_cols)
+        dim_group_by = "".join(f"d.{c}, " for c in dim_cols)
+        query = USER_LEVEL_SQL.format(
+            sql_expression=sql_expression,
+            dim_selects=dim_selects,
+            dim_group_by=dim_group_by
+        )
         return self.connection.execute(query, {"experiment_id": experiment_id, "day_range": day_range}).fetchall()
 
     def _resolved_sql_expression(self, *, source_type: str, source_name: str, sql_expression: str) -> str:
@@ -479,7 +490,14 @@ class StatsEngine:
         return sql_expression
 
     def _analysis_sql(self, *, experiment_id: str, day_range: int, sql_expression: str) -> str:
-        query = USER_LEVEL_SQL.format(sql_expression=sql_expression).strip()
+        dim_cols = self._get_dimension_columns()
+        dim_selects = "".join(f"d.{c},\n    " for c in dim_cols)
+        dim_group_by = "".join(f"d.{c}, " for c in dim_cols)
+        query = USER_LEVEL_SQL.format(
+            sql_expression=sql_expression,
+            dim_selects=dim_selects,
+            dim_group_by=dim_group_by
+        ).strip()
         return query.replace(":experiment_id", f"'{experiment_id}'").replace(":day_range", str(day_range))
 
     def _run_group_test(
@@ -640,7 +658,14 @@ class StatsEngine:
         split_dimension: str | None = None,
         split_value: str | None = None,
     ) -> list[dict[str, Any]]:
-        query = DAILY_USER_LEVEL_SQL.format(sql_expression=sql_expression)
+        dim_cols = self._get_dimension_columns()
+        dim_selects = "".join(f"d.{c},\n    " for c in dim_cols)
+        dim_group_by = "".join(f", d.{c}" for c in dim_cols)
+        query = DAILY_USER_LEVEL_SQL.format(
+            sql_expression=sql_expression,
+            dim_selects=dim_selects,
+            dim_group_by=dim_group_by
+        )
         dataset = self.connection.execute(
             query,
             {"experiment_id": experiment_id, "day_range": day_range},
@@ -738,10 +763,14 @@ class StatsEngine:
         except (ValueError, IndexError):
             return (10_000, variation)
 
-    def _dimension_balance_checks(self, dataset: list[sqlite3.Row]) -> list[dict[str, object]]:
-        results: list[dict[str, object]] = []
+    def _dimension_balance_checks(self, dataset: list[sqlite3.Row]) -> list[dict[str, Any]]:
+        if not dataset:
+            return []
+
+        results = []
+        dim_cols = self._get_dimension_columns()
         ordered_variations = self._ordered_variations([str(row["variation_id"]) for row in dataset])
-        for dimension in ("country_code", "mcc"):
+        for dimension in dim_cols:
             contingency: dict[str, dict[str, int]] = {}
             for row in dataset:
                 key = str(row[dimension])
