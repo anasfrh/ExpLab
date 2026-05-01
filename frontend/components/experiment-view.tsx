@@ -61,7 +61,7 @@ export function ExperimentView({ experimentId }: { experimentId: string }) {
   const [sampleSize, setSampleSize] = useState<SampleSizeResponse | null>(null);
   const [status, setStatus] = useState("Loading experiment analysis...");
   const [editingMetricId, setEditingMetricId] = useState<string | null>(null);
-  const [sqlMetricId, setSqlMetricId] = useState<string | null>(null);
+  const [showGlobalSql, setShowGlobalSql] = useState<boolean>(false);
   const [resultsView, setResultsView] = useState<"table" | "timeseries">("table");
   const [showExperimentChecks, setShowExperimentChecks] = useState(false);
   const [splitDimension, setSplitDimension] = useState<string>("none");
@@ -455,15 +455,7 @@ export function ExperimentView({ experimentId }: { experimentId: string }) {
                                           <span className="mini-badge mini-badge-cyan">Experiment override</span>
                                         </div>
                                       ) : null}
-                                      {primaryRow.source_type === "conversion_event" ? (
-                                        <button
-                                          className="inline-link inline-link-button"
-                                          onClick={() => setSqlMetricId((current) => (current === primaryRow.metric_id ? null : primaryRow.metric_id))}
-                                        >
-                                          {sqlMetricId === primaryRow.metric_id ? "Hide SQL" : "View SQL"}
-                                        </button>
-                                      ) : null}
-                                    </div>
+                                      </div>
                                     <button
                                       className="icon-button"
                                       onClick={() => openEditor(primaryRow.metric_id, primaryRow.window_days, primaryRow.winsorize_percentile)}
@@ -520,14 +512,6 @@ export function ExperimentView({ experimentId }: { experimentId: string }) {
                                               <div className="row-flags">
                                                 <span className="mini-badge mini-badge-cyan">Experiment override</span>
                                               </div>
-                                            ) : null}
-                                            {row.source_type === "conversion_event" ? (
-                                              <button
-                                                className="inline-link inline-link-button"
-                                                onClick={() => setSqlMetricId((current) => (current === row.metric_id ? null : row.metric_id))}
-                                              >
-                                                {sqlMetricId === row.metric_id ? "Hide SQL" : "View SQL"}
-                                              </button>
                                             ) : null}
                                           </div>
                                           <button
@@ -615,19 +599,7 @@ export function ExperimentView({ experimentId }: { experimentId: string }) {
                                 </button>
                               </td>
                             </tr>
-                            {row.source_type === "conversion_event" && sqlMetricId === row.metric_id && row.analysis_sql ? (
-                              <tr key={`${row.metric_id}-sql`} className="sql-row">
-                                <td colSpan={isGuardrail ? metricColumnSpan - 1 : metricColumnSpan}>
-                                  <div className="sql-panel sql-panel-inline">
-                                    <div className="sql-panel-header">
-                                      <span className="section-tag">Conversion SQL</span>
-                                      <span className="table-secondary">Exact query used for this event and window in the current experiment</span>
-                                    </div>
-                                    <pre className="sql-block">{row.analysis_sql}</pre>
-                                  </div>
-                                </td>
-                              </tr>
-                            ) : null}
+
                                 </Fragment>
                               );
                             })}
@@ -670,6 +642,11 @@ export function ExperimentView({ experimentId }: { experimentId: string }) {
                 testing correction has been applied across the displayed metric and variant comparisons.
               </p>
             ) : null}
+            <div style={{ marginTop: "12px", display: "flex", gap: "10px", alignItems: "center" }}>
+              <button className="button button-secondary button-compact" onClick={() => setShowGlobalSql(true)}>
+                View Analysis SQL
+              </button>
+            </div>
             {showExperimentChecks ? <ExperimentChecksPanel analysis={analysis} variations={variations} /> : null}
           </>
         ) : null}
@@ -704,6 +681,37 @@ export function ExperimentView({ experimentId }: { experimentId: string }) {
                 Cancel
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showGlobalSql && analysis ? (
+        <div className="popover-card" style={{ maxWidth: "800px", width: "90vw", maxHeight: "80vh", overflow: "auto" }}>
+          <div className="panel-header" style={{ position: "sticky", top: 0, backgroundColor: "var(--bg)", zIndex: 1, paddingBottom: "16px", borderBottom: "1px solid var(--border)", marginBottom: "16px" }}>
+            <div>
+              <div className="section-tag">Queries</div>
+              <h3>Analysis SQL</h3>
+            </div>
+          </div>
+          <div className="sql-panel">
+            {analysis.metric_rows
+              .filter((row, index, self) => index === self.findIndex((r) => r.metric_id === row.metric_id))
+              .filter((row) => row.analysis_sql)
+              .map((row) => (
+                <div key={row.metric_id} style={{ marginBottom: "24px" }}>
+                  <pre className="sql-block">
+                    {`-- ${row.metric_label} (${row.source_type === "conversion_event" ? "Conversion Event" : "Metric"})\n${row.analysis_sql}`}
+                  </pre>
+                </div>
+              ))}
+            {analysis.metric_rows.filter((row) => row.analysis_sql).length === 0 && (
+              <div className="table-secondary">No SQL queries available for the current metrics.</div>
+            )}
+          </div>
+          <div className="headline-actions" style={{ position: "sticky", bottom: 0, backgroundColor: "var(--bg)", padding: "16px 0 0 0", marginTop: "16px", borderTop: "1px solid var(--border)" }}>
+            <button className="button button-secondary" onClick={() => setShowGlobalSql(false)}>
+              Close
+            </button>
           </div>
         </div>
       ) : null}
