@@ -4,8 +4,12 @@ import { useEffect, useState, useTransition } from "react";
 
 import { listConversionEvents, updateConversionEventDefaults } from "../lib/api";
 import { ConversionEventItem } from "../lib/types";
+import { useAuth } from "../lib/AuthContext";
 
 export function ConversionEventsPage() {
+  const { user } = useAuth();
+  const canEdit = user?.role === "admin" || user?.can_edit_metrics;
+
   const [events, setEvents] = useState<ConversionEventItem[]>([]);
   const [status, setStatus] = useState("Loading events...");
   const [showSql, setShowSql] = useState(false);
@@ -95,7 +99,7 @@ export function ConversionEventsPage() {
         ) : null}
         <div className="settings-list">
           {events.map((event) => (
-            <ConversionEventRow key={event.event_name} event={event} onSave={updateEvent} pending={isPending} />
+            <ConversionEventRow key={event.event_name} event={event} onSave={updateEvent} pending={isPending} canEdit={!!canEdit} />
           ))}
         </div>
       </section>
@@ -107,10 +111,12 @@ function ConversionEventRow({
   event,
   onSave,
   pending,
+  canEdit,
 }: {
   event: ConversionEventItem;
   onSave: (eventName: string, window: number) => void;
   pending: boolean;
+  canEdit: boolean;
 }) {
   const [window, setWindow] = useState(event.default_window_days);
 
@@ -127,15 +133,17 @@ function ConversionEventRow({
           <span className="mini-badge mini-badge-neutral">{window}d conversion window</span>
         </div>
       </div>
-      <div className="settings-controls">
-        <label>
-          Conversion window
-          <input type="number" min={1} max={30} value={window} onChange={(e) => setWindow(Number(e.target.value))} />
-        </label>
-        <button className="button button-primary" disabled={pending} onClick={() => onSave(event.event_name, window)}>
-          Save
-        </button>
-      </div>
+      {canEdit ? (
+        <div className="settings-controls">
+          <label>
+            Conversion window
+            <input type="number" min={1} max={30} value={window} onChange={(e) => setWindow(Number(e.target.value))} />
+          </label>
+          <button className="button button-primary" disabled={pending} onClick={() => onSave(event.event_name, window)}>
+            Save
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

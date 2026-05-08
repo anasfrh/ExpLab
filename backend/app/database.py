@@ -2,239 +2,87 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
+from typing import Generator
 
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker, Session
+
+from .models import Base
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 DB_PATH = BASE_DIR / "data" / "experiment.db"
 
+SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_PATH}"
+
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def get_connection() -> sqlite3.Connection:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(DB_PATH)
-    connection.row_factory = sqlite3.Row
+    """Legacy get_connection for raw SQLite where needed (e.g. simulator)"""
+    connection = engine.raw_connection()
+    # We need to set row_factory on the raw sqlite connection
+    # engine.raw_connection() returns a proxy, the actual connection is .connection
+    if hasattr(connection, 'connection'):
+        connection.connection.row_factory = sqlite3.Row
+    else:
+        connection.row_factory = sqlite3.Row
     return connection
+
+def get_db() -> Generator[Session, None, None]:
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 def init_db() -> None:
-    with get_connection() as connection:
-        connection.executescript(
-            """
-            PRAGMA journal_mode=WAL;
-
-            CREATE TABLE IF NOT EXISTS experiments (
-                user_id TEXT NOT NULL,
-                experiment_id TEXT NOT NULL,
-                variation_id TEXT NOT NULL,
-                timestamp TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS conversion_events (
-                user_id TEXT NOT NULL,
-                event_name TEXT NOT NULL,
-                timestamp TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS dimensions (
-                user_id TEXT NOT NULL,
-                country_code TEXT NOT NULL,
-                mcc TEXT NOT NULL,
-                os TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS metrics (
-                user_id TEXT NOT NULL,
-                metric_name TEXT NOT NULL,
-                value REAL NOT NULL,
-                date TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS metric_definitions (
-                metric_id TEXT PRIMARY KEY,
-                label TEXT NOT NULL,
-                source_type TEXT NOT NULL,
-                source_name TEXT NOT NULL,
-                sql_expression TEXT NOT NULL,
-                value_format TEXT NOT NULL,
-                default_window_days INTEGER NOT NULL,
-                default_winsorize_percentile REAL NOT NULL,
-                supports_winsorization INTEGER NOT NULL DEFAULT 1,
-                desired_direction TEXT NOT NULL DEFAULT 'up'
-            );
-
-            CREATE TABLE IF NOT EXISTS conversion_event_settings (
-                event_name TEXT PRIMARY KEY,
-                default_window_days INTEGER NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS experiment_metric_overrides (
-                experiment_id TEXT NOT NULL,
-                metric_id TEXT NOT NULL,
-                window_days INTEGER NOT NULL,
-                winsorize_percentile REAL NOT NULL,
-                PRIMARY KEY (experiment_id, metric_id)
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_experiments_user ON experiments(user_id);
-            CREATE INDEX IF NOT EXISTS idx_experiments_experiment_id ON experiments(experiment_id);
-            CREATE INDEX IF NOT EXISTS idx_metrics_user_date ON metrics(user_id, date);
-            CREATE INDEX IF NOT EXISTS idx_metrics_metric_date ON metrics(metric_name, date);
-            CREATE INDEX IF NOT EXISTS idx_dimensions_user ON dimensions(user_id);
-            CREATE INDEX IF NOT EXISTS idx_conversion_events_user ON conversion_events(user_id);
-            CREATE INDEX IF NOT EXISTS idx_conversion_events_user_event ON conversion_events(user_id, event_name, timestamp);
-            """
-        )
-        seed_catalog(connection)
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with engine.begin() as connection:
+        connection.execute(text("PRAGMA journal_mode=WAL;"))
+    
+    Base.metadata.create_all(bind=engine)
+    
+    with SessionLocal() as session:
+        seed_catalog(session)
 
 
-def seed_catalog(connection: sqlite3.Connection) -> None:
-    metric_count = connection.execute("SELECT COUNT(*) AS count FROM metric_definitions").fetchone()["count"]
+from sqlalchemy import func
+from .models import MetricDefinition, ConversionEventSetting
+
+def seed_catalog(session: Session) -> None:
+    metric_count = session.scalar(func.count(MetricDefinition.metric_id))
     if metric_count == 0:
-        connection.executemany(
-            """
-            INSERT INTO metric_definitions(
-                metric_id, label, source_type, source_name, sql_expression, value_format,
-                default_window_days, default_winsorize_percentile, supports_winsorization, desired_direction
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                (
-                    "revenue",
-                    "Revenue",
-                    "metric",
-                    "revenue",
-                    "SUM(CASE WHEN m.metric_name = 'revenue' THEN m.value ELSE 0 END)",
-                    "currency",
-                    14,
-                    99.0,
-                    1,
-                    "up",
-                ),
-                (
-                    "orders",
-                    "Orders / User",
-                    "metric",
-                    "orders",
-                    "SUM(CASE WHEN m.metric_name = 'orders' THEN m.value ELSE 0 END)",
-                    "number",
-                    14,
-                    99.0,
-                    1,
-                    "up",
-                ),
-                (
-                    "sessions",
-                    "Sessions / User",
-                    "metric",
-                    "sessions",
-                    "SUM(CASE WHEN m.metric_name = 'sessions' THEN m.value ELSE 0 END)",
-                    "number",
-                    14,
-                    99.0,
-                    1,
-                    "up",
-                ),
-                (
-                    "gross_profit",
-                    "Gross Profit",
-                    "metric",
-                    "gross_profit",
-                    "SUM(CASE WHEN m.metric_name = 'gross_profit' THEN m.value ELSE 0 END)",
-                    "currency",
-                    14,
-                    99.0,
-                    1,
-                    "up",
-                ),
-                (
-                    "items_per_order",
-                    "Items / User",
-                    "metric",
-                    "items_per_order",
-                    "SUM(CASE WHEN m.metric_name = 'items_per_order' THEN m.value ELSE 0 END)",
-                    "number",
-                    14,
-                    99.0,
-                    1,
-                    "up",
-                ),
-                (
-                    "conversion_purchase",
-                    "Purchase Conversion Rate",
-                    "conversion_event",
-                    "purchase",
-                    "CASE WHEN COUNT(c.timestamp) > 0 THEN 1.0 ELSE 0.0 END",
-                    "percent",
-                    14,
-                    99.0,
-                    0,
-                    "up",
-                ),
-                (
-                    "conversion_signup_complete",
-                    "Signup Completion Rate",
-                    "conversion_event",
-                    "signup_complete",
-                    "CASE WHEN COUNT(c.timestamp) > 0 THEN 1.0 ELSE 0.0 END",
-                    "percent",
-                    7,
-                    100.0,
-                    0,
-                    "up",
-                ),
-                (
-                    "conversion_add_to_cart",
-                    "Add To Cart Rate",
-                    "conversion_event",
-                    "add_to_cart",
-                    "CASE WHEN COUNT(c.timestamp) > 0 THEN 1.0 ELSE 0.0 END",
-                    "percent",
-                    5,
-                    100.0,
-                    0,
-                    "up",
-                ),
-                (
-                    "latency",
-                    "Latency (ms)",
-                    "metric",
-                    "latency",
-                    "SUM(CASE WHEN m.metric_name = 'latency' THEN m.value ELSE 0 END) / NULLIF(SUM(CASE WHEN m.metric_name = 'latency' THEN 1 ELSE 0 END), 0)",
-                    "number",
-                    14,
-                    99.0,
-                    1,
-                    "down",
-                ),
-            ],
-        )
+        metrics = [
+            MetricDefinition(metric_id="revenue", label="Revenue", source_type="metric", source_name="revenue", sql_expression="SUM(CASE WHEN m.metric_name = 'revenue' THEN m.value ELSE 0 END)", value_format="currency", default_window_days=14, default_winsorize_percentile=99.0, supports_winsorization=1, desired_direction="up"),
+            MetricDefinition(metric_id="orders", label="Orders / User", source_type="metric", source_name="orders", sql_expression="SUM(CASE WHEN m.metric_name = 'orders' THEN m.value ELSE 0 END)", value_format="number", default_window_days=14, default_winsorize_percentile=99.0, supports_winsorization=1, desired_direction="up"),
+            MetricDefinition(metric_id="sessions", label="Sessions / User", source_type="metric", source_name="sessions", sql_expression="SUM(CASE WHEN m.metric_name = 'sessions' THEN m.value ELSE 0 END)", value_format="number", default_window_days=14, default_winsorize_percentile=99.0, supports_winsorization=1, desired_direction="up"),
+            MetricDefinition(metric_id="gross_profit", label="Gross Profit", source_type="metric", source_name="gross_profit", sql_expression="SUM(CASE WHEN m.metric_name = 'gross_profit' THEN m.value ELSE 0 END)", value_format="currency", default_window_days=14, default_winsorize_percentile=99.0, supports_winsorization=1, desired_direction="up"),
+            MetricDefinition(metric_id="items_per_order", label="Items / User", source_type="metric", source_name="items_per_order", sql_expression="SUM(CASE WHEN m.metric_name = 'items_per_order' THEN m.value ELSE 0 END)", value_format="number", default_window_days=14, default_winsorize_percentile=99.0, supports_winsorization=1, desired_direction="up"),
+            MetricDefinition(metric_id="conversion_purchase", label="Purchase Conversion Rate", source_type="conversion_event", source_name="purchase", sql_expression="CASE WHEN COUNT(c.timestamp) > 0 THEN 1.0 ELSE 0.0 END", value_format="percent", default_window_days=14, default_winsorize_percentile=99.0, supports_winsorization=0, desired_direction="up"),
+            MetricDefinition(metric_id="conversion_signup_complete", label="Signup Completion Rate", source_type="conversion_event", source_name="signup_complete", sql_expression="CASE WHEN COUNT(c.timestamp) > 0 THEN 1.0 ELSE 0.0 END", value_format="percent", default_window_days=7, default_winsorize_percentile=100.0, supports_winsorization=0, desired_direction="up"),
+            MetricDefinition(metric_id="conversion_add_to_cart", label="Add To Cart Rate", source_type="conversion_event", source_name="add_to_cart", sql_expression="CASE WHEN COUNT(c.timestamp) > 0 THEN 1.0 ELSE 0.0 END", value_format="percent", default_window_days=5, default_winsorize_percentile=100.0, supports_winsorization=0, desired_direction="up"),
+            MetricDefinition(metric_id="latency", label="Latency (ms)", source_type="metric", source_name="latency", sql_expression="SUM(CASE WHEN m.metric_name = 'latency' THEN m.value ELSE 0 END) / NULLIF(SUM(CASE WHEN m.metric_name = 'latency' THEN 1 ELSE 0 END), 0)", value_format="number", default_window_days=14, default_winsorize_percentile=99.0, supports_winsorization=1, desired_direction="down"),
+        ]
+        session.add_all(metrics)
 
-    event_count = connection.execute("SELECT COUNT(*) AS count FROM conversion_event_settings").fetchone()["count"]
+    event_count = session.scalar(func.count(ConversionEventSetting.event_name))
     if event_count == 0:
-        connection.execute(
-            "INSERT INTO conversion_event_settings(event_name, default_window_days) VALUES (?, ?)",
-            ("purchase", 14),
-        )
-        connection.executemany(
-            "INSERT OR IGNORE INTO conversion_event_settings(event_name, default_window_days) VALUES (?, ?)",
-            [
-                ("signup_complete", 7),
-                ("add_to_cart", 5),
-                ("checkout_start", 3),
-            ],
-        )
+        events = [
+            ConversionEventSetting(event_name="purchase", default_window_days=14),
+            ConversionEventSetting(event_name="signup_complete", default_window_days=7),
+            ConversionEventSetting(event_name="add_to_cart", default_window_days=5),
+            ConversionEventSetting(event_name="checkout_start", default_window_days=3),
+        ]
+        for event in events:
+            # use merge to do "insert or ignore" functionality equivalent
+            session.merge(event)
+            
+    session.commit()
 
 
 def reset_db() -> None:
-    with get_connection() as connection:
-        connection.executescript(
-            """
-            DROP TABLE IF EXISTS experiments;
-            DROP TABLE IF EXISTS conversion_events;
-            DROP TABLE IF EXISTS dimensions;
-            DROP TABLE IF EXISTS metrics;
-            DROP TABLE IF EXISTS experiment_metric_overrides;
-            DROP TABLE IF EXISTS metric_definitions;
-            DROP TABLE IF EXISTS conversion_event_settings;
-            """
-        )
+    Base.metadata.drop_all(bind=engine)
     init_db()

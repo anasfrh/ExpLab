@@ -5,3 +5,8 @@ scipy==1.15.2
 statsmodels==0.14.4
 pydantic==2.11.3
 httpx==0.28.1
+passlib==1.7.4
+bcrypt==5.0.0
+pyjwt==2.10.1
+python-multipart==0.0.27
+sqlalchemy>=2.0.0

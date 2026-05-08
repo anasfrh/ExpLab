@@ -1,0 +1,13 @@
+{
+  "/_not-found/page": "/_not-found",
+  "/icon.png/route": "/icon.png",
+  "/docs/page": "/docs",
+  "/login/page": "/login",
+  "/dimensions/page": "/dimensions",
+  "/metrics/page": "/metrics",
+  "/power-calculator/page": "/power-calculator",
+  "/conversion-events/page": "/conversion-events",
+  "/page": "/",
+  "/experiments/[experimentId]/page": "/experiments/[experimentId]",
+  "/settings/page": "/settings"
+}

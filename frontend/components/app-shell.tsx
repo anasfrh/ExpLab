@@ -2,14 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-const RAIL_ITEMS = [
-  { label: "Profile", glyph: "A", href: "/" },
-  { label: "Websites", glyph: "W", href: "/" },
-  { label: "Data", glyph: "D", href: "/metrics" },
-  { label: "Apps", glyph: "P", href: "/power-calculator" },
-  { label: "Globe", glyph: "G", href: "/docs" },
-  { label: "Theme", glyph: "M", href: "/" },
-];
+import { useAuth } from "../lib/AuthContext";
 
 const NAV_ITEMS = [
   { href: "/", label: "Experiments" },
@@ -22,32 +15,28 @@ const NAV_ITEMS = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const { logout } = useAuth();
+
+  if (pathname === "/login") {
+    return <main>{children}</main>;
+  }
 
   return (
     <div className="app-frame">
       <aside className="global-rail">
-        <div className="rail-stack">
-          {RAIL_ITEMS.map((item) => (
-            <Link
-              key={`${item.label}-${item.href}`}
-              href={item.href}
-              className={`rail-button ${pathname === item.href ? "active" : ""}`}
-              aria-label={item.label}
-              title={item.label}
-            >
-              {item.glyph}
-            </Link>
-          ))}
-        </div>
+        <Link
+          href="/settings"
+          className={`rail-button ${pathname === "/settings" ? "active" : ""}`}
+          aria-label="Settings"
+          title="Settings"
+        >
+          👤
+        </Link>
       </aside>
 
       <aside className="functional-sidebar">
         <div className="sidebar-site-picker">
-          <div className="sidebar-site-label">Website</div>
-          <button className="site-picker-button" type="button">
-            <span>experimentation-platform</span>
-            <span className="site-picker-chevron">&gt;</span>
-          </button>
+          <div className="sidebar-site-label">ExpLab</div>
         </div>
 
         <nav className="sidebar-nav">
@@ -58,6 +47,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
       </aside>
+
+      {/* Global top-right Sign Out */}
+      <button className="global-signout" onClick={logout} type="button">
+        Sign Out
+      </button>
 
       <main className="app-content">{children}</main>
     </div>

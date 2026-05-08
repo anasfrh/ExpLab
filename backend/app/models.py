@@ -1,0 +1,90 @@
+from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey
+from sqlalchemy.orm import declarative_base
+
+Base = declarative_base()
+
+class User(Base):
+    __tablename__ = "users"
+    
+    id = Column(String, primary_key=True)
+    email = Column(String, unique=True, nullable=False)
+    password_hash = Column(String, nullable=False)
+    role = Column(String, nullable=False)
+    can_simulate = Column(Integer, nullable=False, default=0)
+    can_edit_metrics = Column(Integer, nullable=False, default=0)
+
+class Experiment(Base):
+    __tablename__ = "experiments"
+    
+    user_id = Column(String, nullable=False, index=True)
+    experiment_id = Column(String, nullable=False, index=True)
+    variation_id = Column(String, nullable=False)
+    timestamp = Column(String, nullable=False)
+    
+    # Needs a dummy primary key since SQLAlchemy requires one
+    __mapper_args__ = {
+        "primary_key": [user_id, experiment_id, variation_id, timestamp]
+    }
+
+class ConversionEvent(Base):
+    __tablename__ = "conversion_events"
+    
+    user_id = Column(String, nullable=False, index=True)
+    event_name = Column(String, nullable=False)
+    timestamp = Column(String, nullable=False)
+    
+    __mapper_args__ = {
+        "primary_key": [user_id, event_name, timestamp]
+    }
+
+class Dimension(Base):
+    __tablename__ = "dimensions"
+    
+    user_id = Column(String, nullable=False, index=True)
+    country_code = Column(String, nullable=False)
+    mcc = Column(String, nullable=False)
+    os = Column(String, nullable=False)
+    
+    __mapper_args__ = {
+        "primary_key": [user_id]
+    }
+
+class Metric(Base):
+    __tablename__ = "metrics"
+    
+    user_id = Column(String, nullable=False)
+    metric_name = Column(String, nullable=False)
+    value = Column(Float, nullable=False)
+    date = Column(String, nullable=False)
+    
+    __mapper_args__ = {
+        "primary_key": [user_id, metric_name, date]
+    }
+
+class MetricDefinition(Base):
+    __tablename__ = "metric_definitions"
+    
+    metric_id = Column(String, primary_key=True)
+    label = Column(String, nullable=False)
+    source_type = Column(String, nullable=False)
+    source_name = Column(String, nullable=False)
+    sql_expression = Column(String, nullable=False)
+    value_format = Column(String, nullable=False)
+    default_window_days = Column(Integer, nullable=False)
+    default_winsorize_percentile = Column(Float, nullable=False)
+    supports_winsorization = Column(Integer, nullable=False, default=1)
+    desired_direction = Column(String, nullable=False, default='up')
+
+class ConversionEventSetting(Base):
+    __tablename__ = "conversion_event_settings"
+    
+    event_name = Column(String, primary_key=True)
+    default_window_days = Column(Integer, nullable=False)
+
+class ExperimentMetricOverride(Base):
+    __tablename__ = "experiment_metric_overrides"
+    
+    experiment_id = Column(String, primary_key=True)
+    metric_id = Column(String, primary_key=True)
+    window_days = Column(Integer, nullable=False)
+    winsorize_percentile = Column(Float, nullable=False)
