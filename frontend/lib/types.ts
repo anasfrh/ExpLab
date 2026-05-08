@@ -1,9 +1,32 @@
 export type ExperimentSummary = {
   experiment_id: string;
+  display_experiment_id: string;
+  source_name: string;
   users: number;
   start_date: string;
   latest_metric_date: string | null;
   variant_count: number;
+};
+
+export type DataSourceSummary = {
+  id: string;
+  name: string;
+  source_type: "postgresql";
+  host: string;
+  port: number;
+  database_name: string;
+  username: string;
+  schema_name: string;
+  experiments_table: string;
+  metrics_table: string;
+  conversion_events_table: string;
+  dimensions_table: string;
+  status: string;
+  last_synced_at: string | null;
+  last_error: string | null;
+  imported_experiment_count: number;
+  imported_user_count: number;
+  password_configured: boolean;
 };
 
 export type MetricCatalogItem = {

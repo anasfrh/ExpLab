@@ -1,6 +1,7 @@
 import {
   AnalyzeResponse,
   ConversionEventItem,
+  DataSourceSummary,
   DimensionItem,
   ExperimentMetric,
   ExperimentSummary,
@@ -62,8 +63,9 @@ export function updateConversionEventDefaults(eventName: string, payload: { defa
   return request<{ message: string }>(`/conversion-events/${eventName}`, payload, "PUT");
 }
 
-export function listExperimentMetrics(experimentId: string) {
-  return request<{ metrics: ExperimentMetric[] }>(`/experiments/${encodeURIComponent(experimentId)}/metrics`);
+export function listExperimentMetrics(experimentId: string, sourceName?: string) {
+  const query = sourceName ? `?source_name=${encodeURIComponent(sourceName)}` : "";
+  return request<{ metrics: ExperimentMetric[] }>(`/experiments/${encodeURIComponent(experimentId)}/metrics${query}`);
 }
 
 export function updateExperimentMetricOverride(
@@ -95,6 +97,7 @@ export function seedDemoPortfolio() {
 
 export function analyze(payload: {
   experiment_id: string;
+  source_name?: string;
   primary_metric_ids: string[];
   secondary_metric_ids: string[];
   guardrail_metric_ids: string[];
@@ -106,6 +109,7 @@ export function analyze(payload: {
 
 export function advanceDay(payload: {
   experiment_id: string;
+  source_name?: string;
   metric_name: string;
   conversion_event_name: string;
   target_lift: number;
@@ -190,4 +194,54 @@ export function resetUserPassword(userId: string, payload: any) {
 
 export function deleteUser(userId: string) {
   return request<{ message: string }>(`/users/${userId}`, undefined, "DELETE");
+}
+
+export function listDataSources() {
+  return request<DataSourceSummary[]>("/data-sources");
+}
+
+export function createDataSource(payload: {
+  name: string;
+  source_type: "postgresql";
+  host: string;
+  port: number;
+  database_name: string;
+  username: string;
+  password: string;
+  schema_name: string;
+  experiments_table: string;
+  metrics_table: string;
+  conversion_events_table: string;
+  dimensions_table: string;
+}) {
+  return request<{ source: DataSourceSummary }>(
+    "/data-sources",
+    payload,
+    "POST",
+  );
+}
+
+export function testDataSourceConnection(payload: {
+  name: string;
+  source_type: "postgresql";
+  host: string;
+  port: number;
+  database_name: string;
+  username: string;
+  password: string;
+  schema_name: string;
+  experiments_table: string;
+  metrics_table: string;
+  conversion_events_table: string;
+  dimensions_table: string;
+}) {
+  return request<{ message: string }>("/data-sources/test-connection", payload, "POST");
+}
+
+export function syncDataSource(sourceId: string) {
+  return request<{ source: DataSourceSummary; sync_summary: { imported_experiment_count: number; imported_user_count: number; source_name: string } }>(
+    `/data-sources/${encodeURIComponent(sourceId)}/sync`,
+    {},
+    "POST",
+  );
 }
