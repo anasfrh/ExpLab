@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import os
 from typing import Any, Callable
 
 from fastapi import HTTPException
@@ -323,12 +324,13 @@ class PostgresWarehouseAdapter(WarehouseAdapter):
         self.engine.dispose()
 
     def _build_engine(self) -> Engine:
+        host = self._resolved_host()
         return create_engine(
             URL.create(
                 "postgresql+psycopg",
                 username=self.source.username,
                 password=self.source.password,
-                host=self.source.host,
+                host=host,
                 port=self.source.port,
                 database=self.source.database_name,
             ),
@@ -340,6 +342,12 @@ class PostgresWarehouseAdapter(WarehouseAdapter):
                 "options": "-c statement_timeout=15000",
             },
         )
+
+    def _resolved_host(self) -> str:
+        host = self.source.host.strip()
+        if host in {"localhost", "127.0.0.1", "::1"} and os.path.exists("/.dockerenv"):
+            return os.getenv("DOCKER_HOST_GATEWAY", "host.docker.internal")
+        return host
 
     def _validate_schema_with_connection(self, remote: Connection) -> None:
         table_map = {

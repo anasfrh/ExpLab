@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..auth import get_current_admin
-from ..database import get_db
+from ..database import clear_source_data, get_db
 from ..models import DataSource
 from ..schemas import DataSourceCreateRequest
 from ..source_sync import sync_postgres_source, test_postgres_connection
@@ -75,6 +75,22 @@ def sync_data_source(
     sync_summary = sync_postgres_source(source, db)
     db.refresh(source)
     return {"source": _serialize_source(source), "sync_summary": sync_summary}
+
+
+@router.delete("/{source_id}")
+def delete_data_source(
+    source_id: str,
+    admin: dict[str, Any] = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    source = db.get(DataSource, source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Data source not found.")
+
+    clear_source_data(source_name=source.name)
+    db.delete(source)
+    db.commit()
+    return {"message": f"Deleted data source '{source.name}'."}
 
 
 def _serialize_source(source: DataSource) -> dict[str, Any]:

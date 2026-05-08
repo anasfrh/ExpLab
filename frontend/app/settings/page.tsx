@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../../lib/AuthContext";
-import { createDataSource, createUser, deleteUser, getUsers, listDataSources, resetUserPassword, syncDataSource, testDataSourceConnection, updateMyPassword, updateUser } from "../../lib/api";
+import { createDataSource, createUser, deleteDataSource, deleteUser, getUsers, listDataSources, resetUserPassword, syncDataSource, testDataSourceConnection, updateMyPassword, updateUser } from "../../lib/api";
 import { ConfirmModal, NoticeModal } from "../../components/modals";
 import { DataSourceSummary } from "../../lib/types";
 
@@ -10,6 +10,7 @@ type ModalState =
   | { type: "none" }
   | { type: "confirm-password"; currentPassword: string; newPassword: string }
   | { type: "confirm-delete"; userId: string; email: string }
+  | { type: "confirm-delete-source"; sourceId: string; sourceName: string }
   | { type: "confirm-reset"; userId: string; email: string; newPassword: string }
   | { type: "notice"; title: string; message: string };
 
@@ -26,6 +27,7 @@ export default function SettingsPage() {
   const [creatingSource, setCreatingSource] = useState(false);
   const [testingSourceConnection, setTestingSourceConnection] = useState(false);
   const [syncingSourceId, setSyncingSourceId] = useState<string | null>(null);
+  const [deletingSourceId, setDeletingSourceId] = useState<string | null>(null);
   const [showAddSourceForm, setShowAddSourceForm] = useState(false);
   const [sourceConnectionStatus, setSourceConnectionStatus] = useState<{ tone: "success" | "error"; message: string } | null>(null);
   const [sourceForm, setSourceForm] = useState({
@@ -240,6 +242,24 @@ export default function SettingsPage() {
     }
   };
 
+  const handleDeleteSource = (source: DataSourceSummary) => {
+    setModal({ type: "confirm-delete-source", sourceId: source.id, sourceName: source.name });
+  };
+
+  const confirmDeleteSource = async (sourceId: string) => {
+    setDeletingSourceId(sourceId);
+    setModal({ type: "none" });
+    try {
+      await deleteDataSource(sourceId);
+      await loadDataSources();
+      setModal({ type: "notice", title: "Source Deleted", message: "The data source has been removed." });
+    } catch (err: any) {
+      setModal({ type: "notice", title: "Delete Error", message: err.message || "Failed to delete the data source." });
+    } finally {
+      setDeletingSourceId(null);
+    }
+  };
+
   if (!user) return null;
 
   return (
@@ -261,6 +281,16 @@ export default function SettingsPage() {
           confirmLabel="Delete User"
           danger
           onConfirm={() => confirmDelete(modal.userId)}
+          onCancel={() => setModal({ type: "none" })}
+        />
+      )}
+      {modal.type === "confirm-delete-source" && (
+        <ConfirmModal
+          title="Delete Data Source"
+          message={<>Are you sure you want to remove <strong>{modal.sourceName}</strong>? Any imported records associated with this source will be removed from ExpLab.</>}
+          confirmLabel="Delete Source"
+          danger
+          onConfirm={() => confirmDeleteSource(modal.sourceId)}
           onCancel={() => setModal({ type: "none" })}
         />
       )}
@@ -576,11 +606,19 @@ export default function SettingsPage() {
                     <td style={{ textAlign: "right" }}>
                       <button
                         className="button button-secondary"
-                        style={{ padding: "4px 8px" }}
-                        disabled={syncingSourceId === source.id}
+                        style={{ padding: "4px 8px", marginRight: 8 }}
+                        disabled={syncingSourceId === source.id || deletingSourceId === source.id}
                         onClick={() => handleSyncSource(source.id)}
                       >
                         {syncingSourceId === source.id ? "Importing..." : "Import Data"}
+                      </button>
+                      <button
+                        className="button button-danger"
+                        style={{ padding: "4px 8px" }}
+                        disabled={syncingSourceId === source.id || deletingSourceId === source.id}
+                        onClick={() => handleDeleteSource(source)}
+                      >
+                        {deletingSourceId === source.id ? "Deleting..." : "Delete"}
                       </button>
                     </td>
                   </tr>

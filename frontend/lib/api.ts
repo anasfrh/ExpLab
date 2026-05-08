@@ -247,3 +247,7 @@ export function syncDataSource(sourceId: string) {
     "POST",
   );
 }
+
+export function deleteDataSource(sourceId: string) {
+  return request<{ message: string }>(`/data-sources/${encodeURIComponent(sourceId)}`, undefined, "DELETE");
+}
