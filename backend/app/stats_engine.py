@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import sqlite3
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from typing import Any
 
 import numpy as np
@@ -15,36 +16,25 @@ from .schemas import MetricDefinition
 
 USER_LEVEL_SQL = """
 WITH experiment_users AS (
-    SELECT user_id, variation_id, timestamp
+    SELECT user_id, variation_id, timestamp, DATE(timestamp) AS d0
     FROM experiments
     WHERE experiment_id = :experiment_id
-),
-inception AS (
-    SELECT m.user_id, MIN(m.date) AS d0
-    FROM metrics m
-    JOIN experiment_users eu ON m.user_id = eu.user_id
-    GROUP BY 1
 )
 SELECT
     e.user_id,
     e.variation_id,
     {dim_selects}
-    i.d0,
+    e.d0,
     {sql_expression} AS metric_value
 FROM experiment_users e
-JOIN inception i ON e.user_id = i.user_id
-LEFT JOIN metrics m ON m.user_id = i.user_id
-  AND m.date BETWEEN i.d0 AND DATE(i.d0, '+' || :day_range || ' days')
-LEFT JOIN conversion_events c ON c.user_id = e.user_id
-  AND DATE(c.timestamp) BETWEEN i.d0 AND DATE(i.d0, '+' || :day_range || ' days')
+{source_join}
 JOIN dimensions d ON d.user_id = e.user_id
-WHERE DATE(e.timestamp) >= i.d0
-GROUP BY e.user_id, e.variation_id, {dim_group_by} i.d0
+GROUP BY e.user_id, e.variation_id, {dim_group_by} e.d0
 """
 
 DAILY_USER_LEVEL_SQL = """
 WITH experiment_users AS (
-    SELECT user_id, variation_id, timestamp
+    SELECT user_id, variation_id, timestamp, DATE(timestamp) AS d0
     FROM experiments
     WHERE experiment_id = :experiment_id
 ),
@@ -58,12 +48,6 @@ selected_dates AS (
     FROM experiment_dates
     ORDER BY bucket_date
     LIMIT :day_range
-),
-inception AS (
-    SELECT m.user_id, MIN(m.date) AS d0
-    FROM metrics m
-    JOIN experiment_users eu ON m.user_id = eu.user_id
-    GROUP BY 1
 )
 SELECT
     sd.bucket_date,
@@ -73,13 +57,9 @@ SELECT
     {sql_expression} AS metric_value
 FROM selected_dates sd
 JOIN experiment_users e ON 1=1
-JOIN inception i ON i.user_id = e.user_id
 JOIN dimensions d ON d.user_id = e.user_id
-LEFT JOIN metrics m ON m.user_id = e.user_id
-  AND m.date = sd.bucket_date
-LEFT JOIN conversion_events c ON c.user_id = e.user_id
-  AND DATE(c.timestamp) = sd.bucket_date
-WHERE sd.bucket_date >= i.d0
+{source_join}
+WHERE sd.bucket_date >= e.d0
 GROUP BY sd.bucket_date, e.user_id, e.variation_id{dim_group_by}
 ORDER BY sd.bucket_date, e.variation_id, e.user_id
 """
@@ -127,23 +107,27 @@ class StatsEngine:
         metric_rows: list[dict[str, Any]] = []
         test_slots_by_category: dict[str, list[tuple[dict[str, Any], dict[str, Any]]]] = {"primary": [], "secondary": []}
 
-        for metric in metrics:
+        from concurrent.futures import ThreadPoolExecutor
+
+        def process_metric(metric: MetricDefinition) -> list[dict[str, Any]]:
+            engine = StatsEngine()
             category = "primary" if metric.id in primary_metric_ids else (
                 "secondary" if metric.id in secondary_metric_ids else "guardrail"
             )
             is_guardrail = category == "guardrail"
 
-            dataset = self._metric_dataset(
+            dataset = engine._metric_dataset(
                 experiment_id=experiment_id,
                 day_range=metric.default_window_days,
                 sql_expression=metric.sql_expression,
+                source_type=metric.source_type,
             )
             if not dataset:
-                continue
+                return []
 
             winsor = metric.default_winsorize_percentile if metric.supports_winsorization else None
             grouped_rows = (
-                self._grouped_analysis(
+                engine._grouped_analysis(
                     dataset,
                     split_dimension,
                     winsor,
@@ -153,16 +137,30 @@ class StatsEngine:
                     sql_expression=metric.sql_expression,
                 )
                 if split_dimension
-                else [self._run_group_test(dataset, winsor, skip_tests=is_guardrail)]
+                else [engine._run_group_test(dataset, winsor, skip_tests=is_guardrail)]
             )
+            
+            rows = []
             for grouped_row in grouped_rows:
-                row = self._decorate_metric_row(
+                row = engine._decorate_metric_row(
                     grouped_row,
                     metric=metric,
                     experiment_id=experiment_id,
                     split_dimension=split_dimension,
                 )
                 row["category"] = category
+                rows.append(row)
+            return rows
+
+        with ThreadPoolExecutor(max_workers=min(len(metrics), 10) if metrics else 1) as executor:
+            results = list(executor.map(process_metric, metrics))
+
+        for rows, metric in zip(results, metrics, strict=True):
+            category = "primary" if metric.id in primary_metric_ids else (
+                "secondary" if metric.id in secondary_metric_ids else "guardrail"
+            )
+            is_guardrail = category == "guardrail"
+            for row in rows:
                 metric_rows.append(row)
                 if not is_guardrail:
                     for comparison in row["comparisons"]:
@@ -229,6 +227,7 @@ class StatsEngine:
         sql_query = "SELECT s.event_name, s.default_window_days, COUNT(c.timestamp) AS usage_count FROM conversion_event_settings s LEFT JOIN conversion_events c ON c.event_name = s.event_name GROUP BY s.event_name, s.default_window_days ORDER BY s.event_name"
         return [{"sql_query": sql_query, **dict(row)} for row in rows]
 
+    @lru_cache
     def _get_dimension_columns(self) -> list[str]:
         columns = self.connection.execute("PRAGMA table_info(dimensions)").fetchall()
         return [col["name"] for col in columns if col["name"] != "user_id"]
@@ -473,14 +472,27 @@ class StatsEngine:
         """
         return self.connection.execute(query, {"experiment_id": experiment_id}).fetchall()
 
-    def _metric_dataset(self, *, experiment_id: str, day_range: int, sql_expression: str) -> list[sqlite3.Row]:
+    def _get_source_join(self, source_type: str, is_daily: bool = False) -> str:
+        if is_daily:
+            if source_type == "conversion_event":
+                return "LEFT JOIN conversion_events c ON c.user_id = e.user_id\n  AND DATE(c.timestamp) = sd.bucket_date\n  AND c.timestamp >= e.timestamp"
+            else:
+                return "LEFT JOIN metrics m ON m.user_id = e.user_id\n  AND m.date = sd.bucket_date"
+        else:
+            if source_type == "conversion_event":
+                return "LEFT JOIN conversion_events c ON c.user_id = e.user_id\n  AND c.timestamp BETWEEN e.timestamp AND DATETIME(e.timestamp, '+' || :day_range || ' days')"
+            else:
+                return "LEFT JOIN metrics m ON m.user_id = e.user_id\n  AND m.date BETWEEN e.d0 AND DATE(e.d0, '+' || :day_range || ' days')"
+
+    def _metric_dataset(self, *, experiment_id: str, day_range: int, sql_expression: str, source_type: str) -> list[sqlite3.Row]:
         dim_cols = self._get_dimension_columns()
         dim_selects = "".join(f"d.{c},\n    " for c in dim_cols)
         dim_group_by = "".join(f"d.{c}, " for c in dim_cols)
         query = USER_LEVEL_SQL.format(
             sql_expression=sql_expression,
             dim_selects=dim_selects,
-            dim_group_by=dim_group_by
+            dim_group_by=dim_group_by,
+            source_join=self._get_source_join(source_type, is_daily=False)
         )
         return self.connection.execute(query, {"experiment_id": experiment_id, "day_range": day_range}).fetchall()
 
@@ -489,14 +501,15 @@ class StatsEngine:
             return CONVERSION_RATE_SQL.format(event_name=source_name)
         return sql_expression
 
-    def _analysis_sql(self, *, experiment_id: str, day_range: int, sql_expression: str) -> str:
+    def _analysis_sql(self, *, experiment_id: str, day_range: int, sql_expression: str, source_type: str) -> str:
         dim_cols = self._get_dimension_columns()
         dim_selects = "".join(f"d.{c},\n    " for c in dim_cols)
         dim_group_by = "".join(f"d.{c}, " for c in dim_cols)
         query = USER_LEVEL_SQL.format(
             sql_expression=sql_expression,
             dim_selects=dim_selects,
-            dim_group_by=dim_group_by
+            dim_group_by=dim_group_by,
+            source_join=self._get_source_join(source_type, is_daily=False)
         ).strip()
         return query.replace(":experiment_id", f"'{experiment_id}'").replace(":day_range", str(day_range))
 
@@ -636,11 +649,13 @@ class StatsEngine:
             experiment_id=experiment_id,
             day_range=metric.default_window_days,
             sql_expression=metric.sql_expression,
+            source_type=metric.source_type,
         )
         row["time_series"] = self._metric_time_series(
             experiment_id=experiment_id,
             day_range=metric.default_window_days,
             sql_expression=metric.sql_expression,
+            source_type=metric.source_type,
             winsorize_percentile=winsor,
             split_dimension=split_dimension,
             split_value=row.get("dimension_value"),
@@ -654,6 +669,7 @@ class StatsEngine:
         experiment_id: str,
         day_range: int,
         sql_expression: str,
+        source_type: str,
         winsorize_percentile: float | None,
         split_dimension: str | None = None,
         split_value: str | None = None,
@@ -664,7 +680,8 @@ class StatsEngine:
         query = DAILY_USER_LEVEL_SQL.format(
             sql_expression=sql_expression,
             dim_selects=dim_selects,
-            dim_group_by=dim_group_by
+            dim_group_by=dim_group_by,
+            source_join=self._get_source_join(source_type, is_daily=True)
         )
         dataset = self.connection.execute(
             query,

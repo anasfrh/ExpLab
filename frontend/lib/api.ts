@@ -12,11 +12,20 @@ import {
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 async function request<T>(path: string, payload?: object, method?: string): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  
+  if (typeof window !== "undefined") {
+    const token = localStorage.getItem("explab_token");
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+  }
+
   const response = await fetch(`${API_BASE}${path}`, {
     method: method ?? (payload ? "POST" : "GET"),
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers,
     body: payload ? JSON.stringify(payload) : undefined,
     cache: "no-store",
   });
@@ -37,7 +46,7 @@ export function listMetrics() {
   return request<{ metrics: MetricCatalogItem[] }>("/metrics");
 }
 
-export function updateMetricDefaults(metricId: string, payload: { default_window_days: number; default_winsorize_percentile: number }) {
+export function updateMetricDefaults(metricId: string, payload: { default_window_days: number; default_winsorize_percentile: number; desired_direction?: string }) {
   return request<{ message: string }>(`/metrics/${metricId}`, payload, "PUT");
 }
 
@@ -128,4 +137,57 @@ export function calculatePower(payload: {
   power: number;
 }) {
   return request<PowerCalculatorResponse>("/power-calculator", payload);
+}
+
+export function getSetupStatus() {
+  return request<{ needs_setup: boolean }>("/auth/setup-status");
+}
+
+export function setupAdmin(payload: any) {
+  return request<{ message: string }>("/auth/setup", payload);
+}
+
+export function login(email: string, password: string) {
+  const formBody = new URLSearchParams();
+  formBody.set("username", email);
+  formBody.set("password", password);
+
+  return fetch(`${API_BASE}/auth/login`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: formBody.toString(),
+  }).then(async (res) => {
+    if (!res.ok) throw new Error(await res.text());
+    return res.json() as Promise<{ access_token: string }>;
+  });
+}
+
+export function getMe() {
+  return request<{ id: string; email: string; role: string; can_simulate: boolean; can_edit_metrics: boolean }>("/auth/me");
+}
+
+export function updateMyPassword(payload: { current_password: string; new_password: string }) {
+  return request<{ message: string }>("/auth/me/password", payload, "PUT");
+}
+
+export function getUsers() {
+  return request<any[]>("/users");
+}
+
+export function createUser(payload: any) {
+  return request<{ message: string }>("/users", payload);
+}
+
+export function updateUser(userId: string, payload: any) {
+  return request<{ message: string }>(`/users/${userId}`, payload, "PUT");
+}
+
+export function resetUserPassword(userId: string, payload: any) {
+  return request<{ message: string }>(`/users/${userId}/password`, payload, "PUT");
+}
+
+export function deleteUser(userId: string) {
+  return request<{ message: string }>(`/users/${userId}`, undefined, "DELETE");
 }

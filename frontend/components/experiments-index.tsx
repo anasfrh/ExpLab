@@ -52,10 +52,6 @@ export function ExperimentsIndex() {
           <div className="topbar-kicker">&gt; experimentation-platform</div>
           <h1>Experiments Overview</h1>
         </div>
-        <div className="topbar-actions">
-          <button className="button button-secondary">Share</button>
-          <button className="button button-secondary">Edit</button>
-        </div>
       </header>
 
       <section className="toolbar-panel">

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, APIRouter
+from typing import Any
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import reset_db
@@ -16,6 +17,8 @@ from .schemas import (
 )
 from .simulator import Simulator
 from .stats_engine import StatsEngine
+from .auth import get_current_user, check_can_simulate, check_can_edit_metrics
+from .routers.users import router as users_router
 
 
 app = FastAPI(title="Warehouse Native Experimentation API", version="0.1.0")
@@ -28,11 +31,13 @@ app.add_middleware(
 )
 
 simulator = Simulator()
+app.include_router(users_router)
 
 
 @app.on_event("startup")
 def startup() -> None:
-    reset_db()
+    from .database import init_db
+    init_db()
     simulator.seed_demo_portfolio()
 
 
@@ -42,7 +47,7 @@ def health() -> dict[str, str]:
 
 
 @app.post("/simulate")
-def simulate(request: SimulationRequest) -> dict[str, object]:
+def simulate(request: SimulationRequest, current_user: dict[str, Any] = Depends(check_can_simulate)) -> dict[str, object]:
     reset_db()
     summary = simulator.seed_experiment(
         num_users=request.num_users,
@@ -56,26 +61,26 @@ def simulate(request: SimulationRequest) -> dict[str, object]:
 
 
 @app.post("/seed-demo")
-def seed_demo() -> dict[str, object]:
+def seed_demo(current_user: dict[str, Any] = Depends(check_can_simulate)) -> dict[str, object]:
     reset_db()
     summaries = simulator.seed_demo_portfolio()
     return {"message": "Demo portfolio seeded", "experiments": [summary.__dict__ for summary in summaries]}
 
 
 @app.get("/experiments")
-def list_experiments() -> dict[str, object]:
+def list_experiments(current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, object]:
     engine = StatsEngine()
     return {"experiments": engine.list_experiments()}
 
 
 @app.get("/metrics")
-def list_metrics() -> dict[str, object]:
+def list_metrics(current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, object]:
     engine = StatsEngine()
     return {"metrics": engine.list_metrics()}
 
 
 @app.put("/metrics/{metric_id}")
-def update_metric(metric_id: str, request: MetricCatalogUpdateRequest) -> dict[str, str]:
+def update_metric(metric_id: str, request: MetricCatalogUpdateRequest, current_user: dict[str, Any] = Depends(check_can_edit_metrics)) -> dict[str, str]:
     engine = StatsEngine()
     engine.update_metric_defaults(
         metric_id=metric_id,
@@ -86,26 +91,26 @@ def update_metric(metric_id: str, request: MetricCatalogUpdateRequest) -> dict[s
 
 
 @app.get("/dimensions")
-def list_dimensions() -> dict[str, object]:
+def list_dimensions(current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, object]:
     engine = StatsEngine()
     return {"dimensions": engine.list_dimensions()}
 
 
 @app.get("/conversion-events")
-def list_conversion_events() -> dict[str, object]:
+def list_conversion_events(current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, object]:
     engine = StatsEngine()
     return {"conversion_events": engine.list_conversion_events()}
 
 
 @app.put("/conversion-events/{event_name}")
-def update_conversion_event(event_name: str, request: ConversionEventUpdateRequest) -> dict[str, str]:
+def update_conversion_event(event_name: str, request: ConversionEventUpdateRequest, current_user: dict[str, Any] = Depends(check_can_edit_metrics)) -> dict[str, str]:
     engine = StatsEngine()
     engine.update_conversion_event_defaults(event_name=event_name, window_days=request.default_window_days)
     return {"message": "Conversion event defaults updated"}
 
 
 @app.get("/experiments/{experiment_id}/metrics")
-def experiment_metrics(experiment_id: str) -> dict[str, object]:
+def experiment_metrics(experiment_id: str, current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, object]:
     engine = StatsEngine()
     return {"metrics": engine.available_experiment_metrics(experiment_id=experiment_id)}
 
@@ -115,6 +120,7 @@ def update_experiment_metric_override(
     experiment_id: str,
     metric_id: str,
     request: MetricOverrideRequest,
+    current_user: dict[str, Any] = Depends(check_can_edit_metrics)
 ) -> dict[str, str]:
     engine = StatsEngine()
     engine.upsert_experiment_override(
@@ -127,7 +133,7 @@ def update_experiment_metric_override(
 
 
 @app.post("/advance-day")
-def advance_day(request: AdvanceDayRequest) -> dict[str, object]:
+def advance_day(request: AdvanceDayRequest, current_user: dict[str, Any] = Depends(check_can_simulate)) -> dict[str, object]:
     result = simulator.advance_day(
         experiment_id=request.experiment_id,
         metric_name=request.metric_name,
@@ -138,7 +144,7 @@ def advance_day(request: AdvanceDayRequest) -> dict[str, object]:
 
 
 @app.post("/analyze")
-def analyze(request: AnalyzeRequest) -> dict[str, object]:
+def analyze(request: AnalyzeRequest, current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, object]:
     engine = StatsEngine()
     result = engine.analyze_experiment(
         experiment_id=request.experiment_id,

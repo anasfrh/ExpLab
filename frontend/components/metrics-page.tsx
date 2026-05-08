@@ -4,8 +4,12 @@ import { useEffect, useState, useTransition } from "react";
 
 import { listMetrics, updateMetricDefaults } from "../lib/api";
 import { MetricCatalogItem } from "../lib/types";
+import { useAuth } from "../lib/AuthContext";
 
 export function MetricsPage() {
+  const { user } = useAuth();
+  const canEdit = user?.role === "admin" || user?.can_edit_metrics;
+
   const [metrics, setMetrics] = useState<MetricCatalogItem[]>([]);
   const [status, setStatus] = useState("Loading metrics...");
   const [showSql, setShowSql] = useState(false);
@@ -100,7 +104,7 @@ export function MetricsPage() {
         ) : null}
         <div className="settings-list">
           {metrics.map((metric) => (
-            <MetricSettingsRow key={metric.metric_id} metric={metric} onSave={updateMetric} pending={isPending} />
+            <MetricSettingsRow key={metric.metric_id} metric={metric} onSave={updateMetric} pending={isPending} canEdit={!!canEdit} />
           ))}
         </div>
       </section>
@@ -112,10 +116,12 @@ function MetricSettingsRow({
   metric,
   onSave,
   pending,
+  canEdit,
 }: {
   metric: MetricCatalogItem;
   onSave: (metricId: string, window: number, winsor: number, direction: "up" | "down") => void;
   pending: boolean;
+  canEdit: boolean;
 }) {
   const [window, setWindow] = useState(metric.default_window_days);
   const [winsor, setWinsor] = useState(metric.default_winsorize_percentile);
@@ -135,28 +141,31 @@ function MetricSettingsRow({
         <div className="row-flags">
           <span className="mini-badge mini-badge-neutral">{window}d default window</span>
           <span className="mini-badge mini-badge-neutral">P{winsor} winsorization</span>
+          <span className="mini-badge mini-badge-neutral">{direction === "up" ? "↑ Higher is better" : "↓ Lower is better"}</span>
         </div>
       </div>
-      <div className="settings-controls">
-        <label>
-          Window
-          <input type="number" min={1} max={30} value={window} onChange={(e) => setWindow(Number(e.target.value))} />
-        </label>
-        <label>
-          Winsor
-          <input type="number" min={50} max={100} value={winsor} onChange={(e) => setWinsor(Number(e.target.value))} />
-        </label>
-        <label>
-          Direction
-          <select value={direction} onChange={(e) => setDirection(e.target.value as "up" | "down")}>
-            <option value="up">Up</option>
-            <option value="down">Down</option>
-          </select>
-        </label>
-        <button className="button button-primary" disabled={pending} onClick={() => onSave(metric.metric_id, window, winsor, direction)}>
-          Save
-        </button>
-      </div>
+      {canEdit ? (
+        <div className="settings-controls">
+          <label>
+            Window
+            <input type="number" min={1} max={30} value={window} onChange={(e) => setWindow(Number(e.target.value))} />
+          </label>
+          <label>
+            Winsor
+            <input type="number" min={50} max={100} value={winsor} onChange={(e) => setWinsor(Number(e.target.value))} />
+          </label>
+          <label>
+            Direction
+            <select value={direction} onChange={(e) => setDirection(e.target.value as "up" | "down")}>
+              <option value="up">Up</option>
+              <option value="down">Down</option>
+            </select>
+          </label>
+          <button className="button button-primary" disabled={pending} onClick={() => onSave(metric.metric_id, window, winsor, direction)}>
+            Save
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
