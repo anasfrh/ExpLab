@@ -90,8 +90,8 @@ export function ExperimentsIndex() {
         </div>
         <div className="metric-tile">
           <small>Warehouse</small>
-          <strong>SQLite</strong>
-          <small>Shared store backend</small>
+          <strong>Multi-source</strong>
+          <small>Built-in sample plus connected sources</small>
         </div>
         <div className="metric-tile">
           <small>Latest metric date</small>
@@ -118,6 +118,7 @@ export function ExperimentsIndex() {
             <thead>
               <tr>
                 <th>Experiment</th>
+                <th>Source</th>
                 <th>Variants</th>
                 <th>Users</th>
                 <th>Start Date</th>
@@ -129,8 +130,11 @@ export function ExperimentsIndex() {
               {experiments.map((experiment) => (
                 <tr key={experiment.experiment_id}>
                   <td>
-                    <div className="table-primary">{experiment.experiment_id}</div>
+                    <div className="table-primary">{experiment.display_experiment_id}</div>
                     <div className="table-secondary">Warehouse-backed experiment</div>
+                  </td>
+                  <td>
+                    <span className="table-chip">{experiment.source_name}</span>
                   </td>
                   <td>
                     <span className="table-chip">{experiment.variant_count} variants</span>
@@ -139,7 +143,10 @@ export function ExperimentsIndex() {
                   <td>{experiment.start_date}</td>
                   <td>{experiment.latest_metric_date ?? "n/a"}</td>
                   <td>
-                    <Link className="inline-link" href={`/experiments/${encodeURIComponent(experiment.experiment_id)}`}>
+                    <Link
+                      className="inline-link"
+                      href={`/experiments/${encodeURIComponent(experiment.experiment_id)}?source=${encodeURIComponent(experiment.source_name)}&label=${encodeURIComponent(experiment.display_experiment_id)}`}
+                    >
                       View experiment
                     </Link>
                   </td>

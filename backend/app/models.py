@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey
+from sqlalchemy import Column, Integer, String, Float
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -18,6 +18,8 @@ class Experiment(Base):
     
     user_id = Column(String, nullable=False, index=True)
     experiment_id = Column(String, nullable=False, index=True)
+    source_name = Column(String, nullable=False, default="Built-in Sample", index=True)
+    display_experiment_id = Column(String, nullable=False, default="")
     variation_id = Column(String, nullable=False)
     timestamp = Column(String, nullable=False)
     
@@ -88,3 +90,26 @@ class ExperimentMetricOverride(Base):
     metric_id = Column(String, primary_key=True)
     window_days = Column(Integer, nullable=False)
     winsorize_percentile = Column(Float, nullable=False)
+
+
+class DataSource(Base):
+    __tablename__ = "data_sources"
+
+    id = Column(String, primary_key=True)
+    name = Column(String, unique=True, nullable=False, index=True)
+    source_type = Column(String, nullable=False, default="postgresql")
+    host = Column(String, nullable=False)
+    port = Column(Integer, nullable=False, default=5432)
+    database_name = Column(String, nullable=False)
+    username = Column(String, nullable=False)
+    password = Column(String, nullable=False)
+    schema_name = Column(String, nullable=False, default="public")
+    experiments_table = Column(String, nullable=False, default="experiments")
+    metrics_table = Column(String, nullable=False, default="metrics")
+    conversion_events_table = Column(String, nullable=False, default="conversion_events")
+    dimensions_table = Column(String, nullable=False, default="dimensions")
+    status = Column(String, nullable=False, default="pending")
+    last_synced_at = Column(String, nullable=True)
+    last_error = Column(String, nullable=True)
+    imported_experiment_count = Column(Integer, nullable=False, default=0)
+    imported_user_count = Column(Integer, nullable=False, default=0)
