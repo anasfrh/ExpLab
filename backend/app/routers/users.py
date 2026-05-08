@@ -14,7 +14,7 @@ from ..auth import (
     get_password_hash,
     verify_password,
 )
-from ..database import get_db
+from ..database import DB_PATH, SessionLocal, get_db, init_db
 from ..models import User
 
 router = APIRouter(tags=["users"])
@@ -39,18 +39,20 @@ class OwnPasswordUpdate(BaseModel):
     new_password: str
 
 @router.get("/auth/setup-status")
-def setup_status(db: Session = Depends(get_db)) -> dict[str, bool]:
-    try:
-        admin_count = db.scalar(select(func.count(User.id)).where(User.role == "admin"))
-    except Exception:
-        # Table might not exist yet if init_db wasn't called properly
-        from ..database import init_db
-        init_db()
-        admin_count = 0
+def setup_status() -> dict[str, bool]:
+    if not DB_PATH.exists():
+        return {"needs_setup": True}
+
+    with SessionLocal() as db:
+        try:
+            admin_count = db.scalar(select(func.count(User.id)).where(User.role == "admin"))
+        except Exception:
+            admin_count = 0
     return {"needs_setup": admin_count == 0}
 
 @router.post("/auth/setup")
 def setup_admin(data: UserCreate, db: Session = Depends(get_db)) -> dict[str, str]:
+    init_db()
     admin_count = db.scalar(select(func.count(User.id)).where(User.role == "admin"))
     if admin_count > 0:
         raise HTTPException(status_code=400, detail="Admin account already exists")

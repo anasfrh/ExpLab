@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, Depends, APIRouter
+from fastapi import FastAPI, Depends
 from typing import Any
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -34,13 +34,6 @@ simulator = Simulator()
 app.include_router(users_router)
 
 
-@app.on_event("startup")
-def startup() -> None:
-    from .database import init_db
-    init_db()
-    simulator.seed_demo_portfolio()
-
-
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -56,6 +49,7 @@ def simulate(request: SimulationRequest, current_user: dict[str, Any] = Depends(
         experiment_id=request.experiment_id,
         metric_name=request.metric_name,
         conversion_event_name=request.conversion_event_name,
+        days=request.days,
     )
     return {"message": "Simulation complete", "summary": summary.__dict__}
 
@@ -69,50 +63,50 @@ def seed_demo(current_user: dict[str, Any] = Depends(check_can_simulate)) -> dic
 
 @app.get("/experiments")
 def list_experiments(current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, object]:
-    engine = StatsEngine()
-    return {"experiments": engine.list_experiments()}
+    with StatsEngine() as engine:
+        return {"experiments": engine.list_experiments()}
 
 
 @app.get("/metrics")
 def list_metrics(current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, object]:
-    engine = StatsEngine()
-    return {"metrics": engine.list_metrics()}
+    with StatsEngine() as engine:
+        return {"metrics": engine.list_metrics()}
 
 
 @app.put("/metrics/{metric_id}")
 def update_metric(metric_id: str, request: MetricCatalogUpdateRequest, current_user: dict[str, Any] = Depends(check_can_edit_metrics)) -> dict[str, str]:
-    engine = StatsEngine()
-    engine.update_metric_defaults(
-        metric_id=metric_id,
-        window_days=request.default_window_days,
-        winsorize_percentile=request.default_winsorize_percentile,
-    )
+    with StatsEngine() as engine:
+        engine.update_metric_defaults(
+            metric_id=metric_id,
+            window_days=request.default_window_days,
+            winsorize_percentile=request.default_winsorize_percentile,
+        )
     return {"message": "Metric defaults updated"}
 
 
 @app.get("/dimensions")
 def list_dimensions(current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, object]:
-    engine = StatsEngine()
-    return {"dimensions": engine.list_dimensions()}
+    with StatsEngine() as engine:
+        return {"dimensions": engine.list_dimensions()}
 
 
 @app.get("/conversion-events")
 def list_conversion_events(current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, object]:
-    engine = StatsEngine()
-    return {"conversion_events": engine.list_conversion_events()}
+    with StatsEngine() as engine:
+        return {"conversion_events": engine.list_conversion_events()}
 
 
 @app.put("/conversion-events/{event_name}")
 def update_conversion_event(event_name: str, request: ConversionEventUpdateRequest, current_user: dict[str, Any] = Depends(check_can_edit_metrics)) -> dict[str, str]:
-    engine = StatsEngine()
-    engine.update_conversion_event_defaults(event_name=event_name, window_days=request.default_window_days)
+    with StatsEngine() as engine:
+        engine.update_conversion_event_defaults(event_name=event_name, window_days=request.default_window_days)
     return {"message": "Conversion event defaults updated"}
 
 
 @app.get("/experiments/{experiment_id}/metrics")
 def experiment_metrics(experiment_id: str, current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, object]:
-    engine = StatsEngine()
-    return {"metrics": engine.available_experiment_metrics(experiment_id=experiment_id)}
+    with StatsEngine() as engine:
+        return {"metrics": engine.available_experiment_metrics(experiment_id=experiment_id)}
 
 
 @app.put("/experiments/{experiment_id}/metrics/{metric_id}/override")
@@ -122,13 +116,13 @@ def update_experiment_metric_override(
     request: MetricOverrideRequest,
     current_user: dict[str, Any] = Depends(check_can_edit_metrics)
 ) -> dict[str, str]:
-    engine = StatsEngine()
-    engine.upsert_experiment_override(
-        experiment_id=experiment_id,
-        metric_id=metric_id,
-        window_days=request.window_days,
-        winsorize_percentile=request.winsorize_percentile,
-    )
+    with StatsEngine() as engine:
+        engine.upsert_experiment_override(
+            experiment_id=experiment_id,
+            metric_id=metric_id,
+            window_days=request.window_days,
+            winsorize_percentile=request.winsorize_percentile,
+        )
     return {"message": "Experiment override updated"}
 
 
@@ -145,40 +139,40 @@ def advance_day(request: AdvanceDayRequest, current_user: dict[str, Any] = Depen
 
 @app.post("/analyze")
 def analyze(request: AnalyzeRequest, current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, object]:
-    engine = StatsEngine()
-    result = engine.analyze_experiment(
-        experiment_id=request.experiment_id,
-        primary_metric_ids=request.primary_metric_ids,
-        secondary_metric_ids=request.secondary_metric_ids,
-        guardrail_metric_ids=request.guardrail_metric_ids,
-        split_dimension=request.split_dimension,
-        multiple_testing_method=request.multiple_testing_method,
-    )
-    return result
+    with StatsEngine() as engine:
+        return engine.analyze_experiment(
+            experiment_id=request.experiment_id,
+            primary_metric_ids=request.primary_metric_ids,
+            secondary_metric_ids=request.secondary_metric_ids,
+            guardrail_metric_ids=request.guardrail_metric_ids,
+            split_dimension=request.split_dimension,
+            multiple_testing_method=request.multiple_testing_method,
+            include_time_series=request.include_time_series,
+        )
 
 
 @app.post("/sample-size")
 def sample_size(request: SampleSizeRequest) -> dict[str, float]:
-    engine = StatsEngine()
-    return engine.sample_size(
-        baseline_mean=request.baseline_mean,
-        baseline_stddev=request.baseline_stddev,
-        mde=request.mde,
-        alpha=request.alpha,
-        power=request.power,
-    )
+    with StatsEngine() as engine:
+        return engine.sample_size(
+            baseline_mean=request.baseline_mean,
+            baseline_stddev=request.baseline_stddev,
+            mde=request.mde,
+            alpha=request.alpha,
+            power=request.power,
+        )
 
 
 @app.post("/power-calculator")
 def power_calculator(request: PowerCalculatorRequest) -> dict[str, float | str]:
-    engine = StatsEngine()
-    return engine.power_calculator(
-        metric_type=request.metric_type,
-        variant_count=request.variant_count,
-        baseline_rate=request.baseline_rate,
-        baseline_mean=request.baseline_mean,
-        baseline_stddev=request.baseline_stddev,
-        mde=request.mde,
-        alpha=request.alpha,
-        power=request.power,
-    )
+    with StatsEngine() as engine:
+        return engine.power_calculator(
+            metric_type=request.metric_type,
+            variant_count=request.variant_count,
+            baseline_rate=request.baseline_rate,
+            baseline_mean=request.baseline_mean,
+            baseline_stddev=request.baseline_stddev,
+            mde=request.mde,
+            alpha=request.alpha,
+            power=request.power,
+        )

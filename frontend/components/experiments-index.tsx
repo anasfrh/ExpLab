@@ -34,11 +34,11 @@ export function ExperimentsIndex() {
   const createFreshSimulation = () => {
     startTransition(async () => {
       try {
-        setStatus("Generating a fresh experiment simulation...");
+        setStatus("Generating the SQLite demo warehouse...");
         await seedDemoPortfolio();
         const response = await listExperiments();
         setExperiments(response.experiments);
-        setStatus("Fresh simulation created.");
+        setStatus("SQLite demo warehouse ready.");
       } catch (error) {
         setStatus(error instanceof Error ? error.message : "Could not create a simulation.");
       }
@@ -72,7 +72,7 @@ export function ExperimentsIndex() {
             Refresh
           </button>
           <button className="button button-secondary" disabled={isPending} onClick={createFreshSimulation}>
-            Reseed
+            {experiments.length === 0 ? "Seed Demo Data" : "Reseed"}
           </button>
         </div>
       </section>
@@ -147,7 +147,9 @@ export function ExperimentsIndex() {
               ))}
             </tbody>
           </table>
-          {experiments.length === 0 ? <div className="empty-state">No experiments available yet.</div> : null}
+          {experiments.length === 0 ? (
+            <div className="empty-state">No experiments available yet. Click "Seed Demo Data" to generate the SQLite demo warehouse.</div>
+          ) : null}
         </div>
       </section>
     </div>

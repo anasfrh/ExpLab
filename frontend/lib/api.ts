@@ -80,6 +80,7 @@ export function updateExperimentMetricOverride(
 
 export function simulate(payload: {
   num_users: number;
+  days?: number;
   target_lift: number;
   srm_skew: boolean;
   experiment_id: string;
@@ -100,6 +101,7 @@ export function analyze(payload: {
   guardrail_metric_ids: string[];
   split_dimension?: string;
   multiple_testing_method?: "bonferroni" | "benjamini-hochberg";
+  include_time_series?: boolean;
 }) {
   return request<AnalyzeResponse>("/analyze", payload);
 }

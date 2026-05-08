@@ -39,7 +39,7 @@ class Simulator:
         experiment_id: str,
         metric_name: str,
         conversion_event_name: str,
-        days: int = 30,
+        days: int = 5,
         user_prefix: str = "user",
         num_variants: int = 2,
         multiple_exposures_ratio: float = 0.0,
@@ -81,15 +81,19 @@ class Simulator:
                 rounded_revenue = round(float(revenue_value), 2)
                 order_count = int(max(0, self.rng.poisson(lam=max(0.2, rounded_revenue / 28.0))))
                 session_count = int(max(1, self.rng.poisson(lam=3.2)))
-
-                metrics_rows.append((user_id, metric_name, rounded_revenue, day_date.isoformat()))
-                metrics_rows.append((user_id, "orders", float(order_count), day_date.isoformat()))
-                metrics_rows.append((user_id, "sessions", float(session_count), day_date.isoformat()))
-                metrics_rows.append((user_id, "gross_profit", round(rounded_revenue * 0.37, 2), day_date.isoformat()))
-                metrics_rows.append((user_id, "items_per_order", float(max(order_count, self.rng.poisson(lam=1.4))), day_date.isoformat()))
                 latency = max(10.0, float(self.rng.normal(250, 50)))
                 latency *= 1.0 + self._variant_lift_multiplier(variation, target_lift)
-                metrics_rows.append((user_id, "latency", round(latency, 2), day_date.isoformat()))
+                metric_values = self._daily_metric_values(
+                    metric_name=metric_name,
+                    rounded_revenue=rounded_revenue,
+                    order_count=order_count,
+                    session_count=session_count,
+                    latency=round(latency, 2),
+                )
+                metrics_rows.extend(
+                    (user_id, generated_metric_name, metric_value, day_date.isoformat())
+                    for generated_metric_name, metric_value in metric_values.items()
+                )
 
                 event_probability = min(0.92, 0.16 + min(rounded_revenue / 120.0, 0.52))
                 if self.rng.random() < event_probability:
@@ -122,6 +126,7 @@ class Simulator:
                 "INSERT INTO conversion_events(user_id, event_name, timestamp) VALUES (?, ?, ?)",
                 conversion_rows,
             )
+            connection.commit()
 
         return SimulationSummary(
             users=num_users,
@@ -166,14 +171,21 @@ class Simulator:
                 value = float(self.rng.lognormal(mean=2.2, sigma=0.9))
                 value *= 1.0 + self._variant_lift_multiplier(str(row["variation_id"]), target_lift)
                 rounded_value = round(value, 2)
-                metric_rows.append((row["user_id"], metric_name, rounded_value, next_date.isoformat()))
-                metric_rows.append((row["user_id"], "orders", float(max(0, self.rng.poisson(lam=max(0.2, rounded_value / 28.0)))), next_date.isoformat()))
-                metric_rows.append((row["user_id"], "sessions", float(max(1, self.rng.poisson(lam=3.2))), next_date.isoformat()))
-                metric_rows.append((row["user_id"], "gross_profit", round(rounded_value * 0.37, 2), next_date.isoformat()))
-                metric_rows.append((row["user_id"], "items_per_order", float(max(1, self.rng.poisson(lam=1.4))), next_date.isoformat()))
+                order_count = int(max(0, self.rng.poisson(lam=max(0.2, rounded_value / 28.0))))
+                session_count = int(max(1, self.rng.poisson(lam=3.2)))
                 latency = max(10.0, float(self.rng.normal(250, 50)))
                 latency *= 1.0 + self._variant_lift_multiplier(str(row["variation_id"]), target_lift)
-                metric_rows.append((row["user_id"], "latency", round(latency, 2), next_date.isoformat()))
+                metric_values = self._daily_metric_values(
+                    metric_name=metric_name,
+                    rounded_revenue=rounded_value,
+                    order_count=order_count,
+                    session_count=session_count,
+                    latency=round(latency, 2),
+                )
+                metric_rows.extend(
+                    (row["user_id"], generated_metric_name, metric_value, next_date.isoformat())
+                    for generated_metric_name, metric_value in metric_values.items()
+                )
 
                 event_probability = min(0.92, 0.16 + min(rounded_value / 120.0, 0.52))
                 if self.rng.random() < event_probability:
@@ -202,12 +214,13 @@ class Simulator:
                 "INSERT INTO conversion_events(user_id, event_name, timestamp) VALUES (?, ?, ?)",
                 conversion_rows,
             )
+            connection.commit()
         return {"date": next_date.isoformat(), "metric_rows": len(metric_rows), "conversion_events": len(conversion_rows)}
 
     def seed_demo_portfolio(self) -> list[SimulationSummary]:
         scenarios = [
             {
-                "num_users": 4000,
+                "num_users": 350,
                 "target_lift": 0.08,
                 "srm_skew": False,
                 "experiment_id": "exp_revenue_v1",
@@ -215,9 +228,10 @@ class Simulator:
                 "conversion_event_name": "purchase",
                 "user_prefix": "rev",
                 "num_variants": 2,
+                "days": 5,
             },
             {
-                "num_users": 3000,
+                "num_users": 300,
                 "target_lift": 0.04,
                 "srm_skew": False,
                 "experiment_id": "exp_checkout_v2",
@@ -225,9 +239,10 @@ class Simulator:
                 "conversion_event_name": "checkout_start",
                 "user_prefix": "chk",
                 "num_variants": 3,
+                "days": 5,
             },
             {
-                "num_users": 2500,
+                "num_users": 250,
                 "target_lift": 0.12,
                 "srm_skew": True,
                 "experiment_id": "exp_signup_onboarding",
@@ -235,9 +250,10 @@ class Simulator:
                 "conversion_event_name": "signup_complete",
                 "user_prefix": "sgn",
                 "num_variants": 4,
+                "days": 5,
             },
             {
-                "num_users": 3500,
+                "num_users": 300,
                 "target_lift": -0.15,
                 "srm_skew": False,
                 "experiment_id": "exp_latency_v1",
@@ -245,9 +261,10 @@ class Simulator:
                 "conversion_event_name": "purchase",
                 "user_prefix": "lat",
                 "num_variants": 2,
+                "days": 5,
             },
             {
-                "num_users": 2000,
+                "num_users": 200,
                 "target_lift": 0.06,
                 "srm_skew": False,
                 "experiment_id": "exp_multiple_exposures_v1",
@@ -256,6 +273,7 @@ class Simulator:
                 "user_prefix": "mexp",
                 "num_variants": 2,
                 "multiple_exposures_ratio": 0.05,
+                "days": 5,
             },
         ]
         return [self.seed_experiment(**scenario) for scenario in scenarios]
@@ -283,3 +301,23 @@ class Simulator:
             return (int(variation.split()[-1]), variation)
         except (ValueError, IndexError):
             return (10_000, variation)
+
+    def _daily_metric_values(
+        self,
+        *,
+        metric_name: str,
+        rounded_revenue: float,
+        order_count: int,
+        session_count: int,
+        latency: float,
+    ) -> dict[str, float]:
+        metric_values = {
+            "revenue": rounded_revenue,
+            "orders": float(order_count),
+            "sessions": float(session_count),
+            "gross_profit": round(rounded_revenue * 0.37, 2),
+            "items_per_order": float(max(order_count, self.rng.poisson(lam=1.4))),
+            "latency": latency,
+        }
+        metric_values[metric_name] = metric_values.get(metric_name, rounded_revenue)
+        return metric_values

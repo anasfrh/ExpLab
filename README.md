@@ -45,43 +45,52 @@ ExpLab is completely open-source. Why does this matter for experimentation?
 
 ## 🚀 Getting Started
 
+The fastest path is Docker Compose: one command starts the FastAPI backend and the Next.js frontend together.
+
+### Prerequisite
+- Docker with Compose support
+
+### 1. Start Everything
+
+```bash
+docker compose up --build
+```
+
+This starts:
+- the backend on `http://localhost:8000`
+- the frontend on `http://localhost:3000`
+
+### 2. First Run
+
+1. Open `http://localhost:3000`
+2. Create the initial admin account
+3. Click `Seed Demo Data` on the experiments page
+
+The demo SQLite warehouse lives at `backend/data/experiment.db` and is only populated when you trigger the seed action from the UI.
+
+### Local Development Without Docker
+
 The platform is split into a Python FastAPI backend and a Next.js App Router frontend.
 
-### Prerequisites
-- Python 3.10+
-- Node.js 18+
-
-### 1. Run the Backend
-
-The backend houses the API, the statistical engine, and the SQLite warehouse.
+#### Backend
 
 ```bash
 cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-
-# Start the API server
 uvicorn app.main:app --reload --port 8000
 ```
-*Note: The first time you start the backend or run a simulation, the `data/experiment.db` SQLite warehouse will be automatically generated and seeded.*
 
-### 2. Run the Frontend
-
-The frontend provides the visual console, analysis tools, and metric configuration.
+#### Frontend
 
 ```bash
 cd frontend
 npm install
-
-# Start the web interface
 npm run dev
 ```
 
-*By default, the frontend expects the backend to run on port `8000`. If you run the backend on a different port, create a `.env.local` file in the frontend directory and set `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:YOUR_PORT`.*
-
-### 3. Explore!
-Navigate to `http://localhost:3000` (or your assigned Next.js port) in your browser. Use the sidebar to explore your active experiments, view the metric catalog, and run health diagnostics!
+By default, the frontend expects the backend on port `8000`. If needed, create `frontend/.env.local` and set `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:YOUR_PORT`.
 
 ---
 

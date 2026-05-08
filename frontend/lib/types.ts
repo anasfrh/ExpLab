@@ -129,6 +129,7 @@ export type AnalyzeResponse = {
     buckets: Record<string, Record<string, number>>;
   }>;
   variations: string[];
+  total_users: number;
   multiple_testing_correction_applied: boolean;
   multiple_testing_method: "bonferroni" | "benjamini-hochberg";
   split_dimension: string | null;

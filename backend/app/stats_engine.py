@@ -83,7 +83,19 @@ class TestResult:
 
 class StatsEngine:
     def __init__(self, connection: sqlite3.Connection | None = None) -> None:
+        self._owns_connection = connection is None
         self.connection = connection or get_connection()
+
+    def close(self) -> None:
+        if self._owns_connection and self.connection is not None:
+            self.connection.close()
+            self.connection = None
+
+    def __enter__(self) -> "StatsEngine":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
 
     def analyze_experiment(
         self,
@@ -94,6 +106,7 @@ class StatsEngine:
         guardrail_metric_ids: list[str],
         split_dimension: str | None = None,
         multiple_testing_method: str = "benjamini-hochberg",
+        include_time_series: bool = False,
     ) -> dict[str, object]:
         all_metric_ids = primary_metric_ids + secondary_metric_ids + guardrail_metric_ids
         if not all_metric_ids:
@@ -107,16 +120,13 @@ class StatsEngine:
         metric_rows: list[dict[str, Any]] = []
         test_slots_by_category: dict[str, list[tuple[dict[str, Any], dict[str, Any]]]] = {"primary": [], "secondary": []}
 
-        from concurrent.futures import ThreadPoolExecutor
-
         def process_metric(metric: MetricDefinition) -> list[dict[str, Any]]:
-            engine = StatsEngine()
             category = "primary" if metric.id in primary_metric_ids else (
                 "secondary" if metric.id in secondary_metric_ids else "guardrail"
             )
             is_guardrail = category == "guardrail"
 
-            dataset = engine._metric_dataset(
+            dataset = self._metric_dataset(
                 experiment_id=experiment_id,
                 day_range=metric.default_window_days,
                 sql_expression=metric.sql_expression,
@@ -127,33 +137,30 @@ class StatsEngine:
 
             winsor = metric.default_winsorize_percentile if metric.supports_winsorization else None
             grouped_rows = (
-                engine._grouped_analysis(
+                self._grouped_analysis(
                     dataset,
                     split_dimension,
                     winsor,
                     skip_tests=is_guardrail,
-                    experiment_id=experiment_id,
-                    day_range=metric.default_window_days,
-                    sql_expression=metric.sql_expression,
                 )
                 if split_dimension
-                else [engine._run_group_test(dataset, winsor, skip_tests=is_guardrail)]
+                else [self._run_group_test(dataset, winsor, skip_tests=is_guardrail)]
             )
             
             rows = []
             for grouped_row in grouped_rows:
-                row = engine._decorate_metric_row(
+                row = self._decorate_metric_row(
                     grouped_row,
                     metric=metric,
                     experiment_id=experiment_id,
                     split_dimension=split_dimension,
+                    include_time_series=include_time_series,
                 )
                 row["category"] = category
                 rows.append(row)
             return rows
 
-        with ThreadPoolExecutor(max_workers=min(len(metrics), 10) if metrics else 1) as executor:
-            results = list(executor.map(process_metric, metrics))
+        results = [process_metric(metric) for metric in metrics]
 
         for rows, metric in zip(results, metrics, strict=True):
             category = "primary" if metric.id in primary_metric_ids else (
@@ -187,11 +194,13 @@ class StatsEngine:
                 row["primary_comparison"] = None
 
         multiple_exposures_check = self._multiple_exposures_check(experiment_users)
+        total_users = len({str(row["user_id"]) for row in experiment_users})
         return {
             "metric_rows": metric_rows,
             "srm": self._srm_check(experiment_users),
             "dimension_balance": self._dimension_balance_checks(experiment_users),
             "variations": self._ordered_variations([str(row["variation_id"]) for row in experiment_users]),
+            "total_users": total_users,
             "multiple_testing_correction_applied": any(len(slots) > 1 for slots in test_slots_by_category.values()),
             "multiple_testing_method": multiple_testing_method,
             "split_dimension": split_dimension,
@@ -519,18 +528,20 @@ class StatsEngine:
         winsorize_percentile: float | None,
         skip_tests: bool = False,
     ) -> dict[str, Any]:
-        ordered_variations = self._ordered_variations([str(row["variation_id"]) for row in dataset])
+        grouped_values: dict[str, list[float]] = {}
+        raw_variation_stats: dict[str, dict[str, int]] = {}
+        for row in dataset:
+            variation = str(row["variation_id"])
+            metric_value = float(row["metric_value"])
+            grouped_values.setdefault(variation, []).append(metric_value)
+            stats = raw_variation_stats.setdefault(variation, {"user_count": 0, "conversion_count": 0})
+            stats["user_count"] += 1
+            if metric_value > 0:
+                stats["conversion_count"] += 1
+
+        ordered_variations = self._ordered_variations(list(grouped_values.keys()))
         grouped_arrays = {
-            variation: np.array([row["metric_value"] for row in dataset if row["variation_id"] == variation], dtype=float)
-            for variation in ordered_variations
-        }
-        raw_variation_stats = {
-            variation: {
-                "user_count": len([row for row in dataset if row["variation_id"] == variation]),
-                "conversion_count": int(
-                    sum(1 for row in dataset if row["variation_id"] == variation and float(row["metric_value"]) > 0)
-                ),
-            }
+            variation: np.array(grouped_values[variation], dtype=float)
             for variation in ordered_variations
         }
         if len(ordered_variations) < 2:
@@ -633,6 +644,7 @@ class StatsEngine:
         metric: MetricDefinition,
         experiment_id: str,
         split_dimension: str | None,
+        include_time_series: bool,
     ) -> dict[str, Any]:
         winsor = metric.default_winsorize_percentile if metric.supports_winsorization else None
         row["metric_id"] = metric.id
@@ -651,14 +663,18 @@ class StatsEngine:
             sql_expression=metric.sql_expression,
             source_type=metric.source_type,
         )
-        row["time_series"] = self._metric_time_series(
-            experiment_id=experiment_id,
-            day_range=metric.default_window_days,
-            sql_expression=metric.sql_expression,
-            source_type=metric.source_type,
-            winsorize_percentile=winsor,
-            split_dimension=split_dimension,
-            split_value=row.get("dimension_value"),
+        row["time_series"] = (
+            self._metric_time_series(
+                experiment_id=experiment_id,
+                day_range=metric.default_window_days,
+                sql_expression=metric.sql_expression,
+                source_type=metric.source_type,
+                winsorize_percentile=winsor,
+                split_dimension=split_dimension,
+                split_value=row.get("dimension_value"),
+            )
+            if include_time_series
+            else []
         )
         row["dimension_name"] = split_dimension
         return row
@@ -741,9 +757,6 @@ class StatsEngine:
         winsorize_percentile: float | None,
         *,
         skip_tests: bool = False,
-        experiment_id: str,
-        day_range: int,
-        sql_expression: str,
     ) -> list[dict[str, float | int | str]]:
         grouped: dict[str, list[sqlite3.Row]] = {}
         for row in dataset:

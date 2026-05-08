@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey
+from sqlalchemy import Column, Float, Index, Integer, String
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -15,6 +15,10 @@ class User(Base):
 
 class Experiment(Base):
     __tablename__ = "experiments"
+    __table_args__ = (
+        Index("ix_experiments_experiment_user", "experiment_id", "user_id"),
+        Index("ix_experiments_experiment_timestamp", "experiment_id", "timestamp"),
+    )
     
     user_id = Column(String, nullable=False, index=True)
     experiment_id = Column(String, nullable=False, index=True)
@@ -28,6 +32,9 @@ class Experiment(Base):
 
 class ConversionEvent(Base):
     __tablename__ = "conversion_events"
+    __table_args__ = (
+        Index("ix_conversion_events_user_event_timestamp", "user_id", "event_name", "timestamp"),
+    )
     
     user_id = Column(String, nullable=False, index=True)
     event_name = Column(String, nullable=False)
@@ -51,6 +58,10 @@ class Dimension(Base):
 
 class Metric(Base):
     __tablename__ = "metrics"
+    __table_args__ = (
+        Index("ix_metrics_user_date", "user_id", "date"),
+        Index("ix_metrics_user_metric_date", "user_id", "metric_name", "date"),
+    )
     
     user_id = Column(String, nullable=False)
     metric_name = Column(String, nullable=False)

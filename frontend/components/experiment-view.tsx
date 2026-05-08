@@ -4,16 +4,15 @@ import { DimensionDistributionCard, MetricSeriesCard } from "./charts";
 
 import { Fragment } from "react";
 import Link from "next/link";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 
 import {
   advanceDay,
   analyze,
-  calculateSampleSize,
   listExperimentMetrics,
   updateExperimentMetricOverride,
 } from "../lib/api";
-import { AnalyzeResponse, ExperimentMetric, SampleSizeResponse } from "../lib/types";
+import { AnalyzeResponse, ExperimentMetric } from "../lib/types";
 
 
 function getVariationLabel(variation: string, variations: string[]) {
@@ -30,7 +29,6 @@ export function ExperimentView({ experimentId }: { experimentId: string }) {
   const [secondaryMetricIds, setSecondaryMetricIds] = useState<string[]>([]);
   const [guardrailMetricIds, setGuardrailMetricIds] = useState<string[]>([]);
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
-  const [sampleSize, setSampleSize] = useState<SampleSizeResponse | null>(null);
   const [status, setStatus] = useState("Loading experiment analysis...");
   const [editingMetricId, setEditingMetricId] = useState<string | null>(null);
   const [showGlobalSql, setShowGlobalSql] = useState<boolean>(false);
@@ -42,6 +40,7 @@ export function ExperimentView({ experimentId }: { experimentId: string }) {
   const [overrideWindow, setOverrideWindow] = useState(14);
   const [overrideWinsor, setOverrideWinsor] = useState(99);
   const [isPending, startTransition] = useTransition();
+  const hasLoadedInitialAnalysis = useRef(false);
   const currentEditingMetric = availableMetrics.find((metric) => metric.id === editingMetricId) ?? null;
   const variations = analysis?.variations ?? [];
   const baselineVariant = variations[0] ?? "Variant 1";
@@ -62,27 +61,16 @@ export function ExperimentView({ experimentId }: { experimentId: string }) {
     startTransition(async () => {
       try {
         setStatus("Refreshing experiment results...");
-        const [catalog, analysisResponse, sampleResponse] = await Promise.all([
-          listExperimentMetrics(experimentId),
-          analyze({
-            experiment_id: experimentId,
-            primary_metric_ids: primary,
-            secondary_metric_ids: secondary,
-            guardrail_metric_ids: guardrail,
-            split_dimension: splitDimension === "none" ? undefined : splitDimension,
-            multiple_testing_method: multipleTestingMethod,
-          }),
-          calculateSampleSize({
-            baseline_mean: 25,
-            baseline_stddev: 30,
-            mde: 0.05,
-            alpha: 0.05,
-            power: 0.8,
-          }),
-        ]);
-        setAvailableMetrics(catalog.metrics);
+        const analysisResponse = await analyze({
+          experiment_id: experimentId,
+          primary_metric_ids: primary,
+          secondary_metric_ids: secondary,
+          guardrail_metric_ids: guardrail,
+          split_dimension: splitDimension === "none" ? undefined : splitDimension,
+          multiple_testing_method: multipleTestingMethod,
+          include_time_series: resultsView === "timeseries",
+        });
         setAnalysis(analysisResponse);
-        setSampleSize(sampleResponse);
         setStatus("Experiment results are up to date.");
       } catch (error) {
         setStatus(error instanceof Error ? error.message : "Analysis failed.");
@@ -93,6 +81,7 @@ export function ExperimentView({ experimentId }: { experimentId: string }) {
   useEffect(() => {
     startTransition(async () => {
       try {
+        hasLoadedInitialAnalysis.current = false;
         const catalog = await listExperimentMetrics(experimentId);
         setAvailableMetrics(catalog.metrics);
         const primary = catalog.metrics.length > 0 ? [catalog.metrics[0].id] : [];
@@ -101,6 +90,7 @@ export function ExperimentView({ experimentId }: { experimentId: string }) {
         setPrimaryMetricIds(primary);
         setSecondaryMetricIds(secondary);
         setGuardrailMetricIds(guardrail);
+        hasLoadedInitialAnalysis.current = true;
         refreshAll(primary, secondary, guardrail);
       } catch (error) {
         setStatus(error instanceof Error ? error.message : "Failed to load experiment metrics.");
@@ -109,16 +99,36 @@ export function ExperimentView({ experimentId }: { experimentId: string }) {
   }, [experimentId]);
 
   useEffect(() => {
-    if (primaryMetricIds.length > 0 || secondaryMetricIds.length > 0 || guardrailMetricIds.length > 0) {
+    if (
+      hasLoadedInitialAnalysis.current &&
+      (primaryMetricIds.length > 0 || secondaryMetricIds.length > 0 || guardrailMetricIds.length > 0)
+    ) {
       refreshAll(primaryMetricIds, secondaryMetricIds, guardrailMetricIds);
     }
   }, [splitDimension]);
 
   useEffect(() => {
-    if (primaryMetricIds.length > 0 || secondaryMetricIds.length > 0 || guardrailMetricIds.length > 0) {
+    if (
+      hasLoadedInitialAnalysis.current &&
+      (primaryMetricIds.length > 0 || secondaryMetricIds.length > 0 || guardrailMetricIds.length > 0)
+    ) {
       refreshAll(primaryMetricIds, secondaryMetricIds, guardrailMetricIds);
     }
   }, [multipleTestingMethod]);
+
+  useEffect(() => {
+    const hasSelectedMetrics =
+      primaryMetricIds.length > 0 || secondaryMetricIds.length > 0 || guardrailMetricIds.length > 0;
+    const needsTimeSeries =
+      resultsView === "timeseries" &&
+      hasSelectedMetrics &&
+      !!analysis &&
+      analysis.metric_rows.some((row) => row.time_series.length === 0);
+
+    if (hasLoadedInitialAnalysis.current && needsTimeSeries) {
+      refreshAll(primaryMetricIds, secondaryMetricIds, guardrailMetricIds);
+    }
+  }, [resultsView, analysis, primaryMetricIds, secondaryMetricIds, guardrailMetricIds]);
 
   const addMetricRow = (metricId: string, category: "primary" | "secondary" | "guardrail") => {
     if ([...primaryMetricIds, ...secondaryMetricIds, ...guardrailMetricIds].includes(metricId)) return;
@@ -240,8 +250,8 @@ export function ExperimentView({ experimentId }: { experimentId: string }) {
             <strong>{primaryMetricIds.length + secondaryMetricIds.length + guardrailMetricIds.length}</strong>
           </div>
           <div className="meta-tile">
-            <span className="meta-label">Sample Size</span>
-            <strong>{sampleSize ? Intl.NumberFormat("en-US").format(sampleSize.total_required_sample) : "n/a"}</strong>
+            <span className="meta-label">Current Sample</span>
+            <strong>{analysis ? Intl.NumberFormat("en-US").format(analysis.total_users) : "n/a"}</strong>
           </div>
           <div className="meta-tile">
             <span className="meta-label">Status</span>
@@ -726,4 +736,3 @@ function ExperimentChecksPanel({
     </section>
   );
 }
-

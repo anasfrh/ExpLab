@@ -7,12 +7,25 @@ from typing import Generator
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 
-from .models import Base
+from .models import (
+    Base,
+    ConversionEventSetting,
+    MetricDefinition,
+)
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 DB_PATH = BASE_DIR / "data" / "experiment.db"
 
 SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_PATH}"
+DEMO_TABLES = (
+    "experiment_metric_overrides",
+    "conversion_events",
+    "metrics",
+    "experiments",
+    "dimensions",
+    "metric_definitions",
+    "conversion_event_settings",
+)
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
@@ -20,14 +33,10 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def get_connection() -> sqlite3.Connection:
-    """Legacy get_connection for raw SQLite where needed (e.g. simulator)"""
-    connection = engine.raw_connection()
-    # We need to set row_factory on the raw sqlite connection
-    # engine.raw_connection() returns a proxy, the actual connection is .connection
-    if hasattr(connection, 'connection'):
-        connection.connection.row_factory = sqlite3.Row
-    else:
-        connection.row_factory = sqlite3.Row
+    """Open a direct SQLite connection for read-heavy stats and simulator work."""
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30)
+    connection.row_factory = sqlite3.Row
     return connection
 
 def get_db() -> Generator[Session, None, None]:
@@ -50,7 +59,6 @@ def init_db() -> None:
 
 
 from sqlalchemy import func
-from .models import MetricDefinition, ConversionEventSetting
 
 def seed_catalog(session: Session) -> None:
     metric_count = session.scalar(func.count(MetricDefinition.metric_id))
@@ -84,5 +92,13 @@ def seed_catalog(session: Session) -> None:
 
 
 def reset_db() -> None:
-    Base.metadata.drop_all(bind=engine)
-    init_db()
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with engine.begin() as connection:
+        connection.execute(text("PRAGMA journal_mode=WAL;"))
+        for table_name in DEMO_TABLES:
+            connection.execute(text(f'DROP TABLE IF EXISTS "{table_name}"'))
+
+    Base.metadata.create_all(bind=engine)
+
+    with SessionLocal() as session:
+        seed_catalog(session)

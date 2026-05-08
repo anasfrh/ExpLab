@@ -9,7 +9,8 @@ DimensionName = str
 
 
 class SimulationRequest(BaseModel):
-    num_users: int = Field(default=10000, ge=100, le=500000)
+    num_users: int = Field(default=500, ge=100, le=2000)
+    days: int = Field(default=5, ge=1, le=7)
     target_lift: float = Field(default=0.08, ge=-0.95, le=10.0)
     srm_skew: bool = False
     experiment_id: str = "exp_revenue_v1"
@@ -24,6 +25,7 @@ class AnalyzeRequest(BaseModel):
     guardrail_metric_ids: list[str] = Field(default_factory=list)
     split_dimension: DimensionName | None = None
     multiple_testing_method: Literal["bonferroni", "benjamini-hochberg"] = "benjamini-hochberg"
+    include_time_series: bool = False
 
 
 class MetricDefinition(BaseModel):
