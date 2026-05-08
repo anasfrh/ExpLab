@@ -4,7 +4,7 @@
 
 # ExpLab: Warehouse-Native Experimentation Platform
 
-ExpLab is a modern, open-source, warehouse-native experimentation platform designed to run A/B tests and calculate statistical significance directly on top of your existing data warehouse. 
+ExpLab is a modern, open-source, warehouse-native experimentation platform designed to analyze A/B tests and calculate statistical significance directly on top of your existing data warehouse. 
 
 Instead of copying sensitive user event data to a third-party analytics tool, ExpLab operates **where your data already lives**. This guarantees single-source-of-truth accuracy, dramatically reduces latency, and protects user privacy.
 
@@ -17,7 +17,7 @@ Instead of copying sensitive user event data to a third-party analytics tool, Ex
 ### 🏢 Warehouse-Native Architecture
 - **Zero Data Movement:** Query your metrics and conversion events directly from your database.
 - **SQLite Demo:** Comes with a built-in SQLite data warehouse to simulate and test a live environment out-of-the-box.
-- **Easily Extensible:** Designed to easily connect to Snowflake, BigQuery, Redshift, or any SQL-based data warehouse.
+- **Database Support:** Currently designed to connect to Postgres/MySql and we are working on supporting BigQuery/Snowflake next.
 
 ### 🔬 Advanced Statistical Engine
 - **Metric Categorization:** Organize metrics into **Primary** (your North Star), **Secondary** (contextual), and **Guardrail** (do no harm) categories to prevent multiple-testing penalties.
