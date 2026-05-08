@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from fastapi import HTTPException, Query
 from fastapi import FastAPI, Depends
 from typing import Any
 from fastapi.middleware.cors import CORSMiddleware
 
-from .database import reset_db
+from .database import LOCAL_SOURCE_NAME, clear_source_data
 from .schemas import (
     AdvanceDayRequest,
     AnalyzeRequest,
@@ -18,6 +19,9 @@ from .schemas import (
 from .simulator import Simulator
 from .stats_engine import StatsEngine
 from .auth import get_current_user, check_can_simulate, check_can_edit_metrics
+from .database import SessionLocal
+from .models import DataSource
+from .routers.data_sources import router as data_sources_router
 from .routers.users import router as users_router
 
 
@@ -32,8 +36,24 @@ app.add_middleware(
 
 simulator = Simulator()
 app.include_router(users_router)
+app.include_router(data_sources_router)
 
 
+def resolve_data_source(source_name: str | None) -> DataSource | None:
+    if not source_name or source_name == LOCAL_SOURCE_NAME:
+        return None
+    with SessionLocal() as session:
+        source = session.query(DataSource).filter(DataSource.name == source_name).first()
+    if source is None:
+        raise HTTPException(status_code=404, detail=f"Unknown data source: {source_name}")
+    return source
+
+
+@app.on_event("startup")
+def startup() -> None:
+    from .database import init_db
+
+    init_db()
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -41,7 +61,7 @@ def health() -> dict[str, str]:
 
 @app.post("/simulate")
 def simulate(request: SimulationRequest, current_user: dict[str, Any] = Depends(check_can_simulate)) -> dict[str, object]:
-    reset_db()
+    clear_source_data(source_name=LOCAL_SOURCE_NAME)
     summary = simulator.seed_experiment(
         num_users=request.num_users,
         target_lift=request.target_lift,
@@ -56,8 +76,7 @@ def simulate(request: SimulationRequest, current_user: dict[str, Any] = Depends(
 
 @app.post("/seed-demo")
 def seed_demo(current_user: dict[str, Any] = Depends(check_can_simulate)) -> dict[str, object]:
-    reset_db()
-    summaries = simulator.seed_demo_portfolio()
+    summaries = simulator.reset_demo_portfolio()
     return {"message": "Demo portfolio seeded", "experiments": [summary.__dict__ for summary in summaries]}
 
 
@@ -104,8 +123,13 @@ def update_conversion_event(event_name: str, request: ConversionEventUpdateReque
 
 
 @app.get("/experiments/{experiment_id}/metrics")
-def experiment_metrics(experiment_id: str, current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, object]:
-    with StatsEngine() as engine:
+def experiment_metrics(
+    experiment_id: str,
+    source_name: str | None = Query(default=None),
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, object]:
+    source = resolve_data_source(source_name)
+    with StatsEngine(source=source) as engine:
         return {"metrics": engine.available_experiment_metrics(experiment_id=experiment_id)}
 
 
@@ -128,6 +152,8 @@ def update_experiment_metric_override(
 
 @app.post("/advance-day")
 def advance_day(request: AdvanceDayRequest, current_user: dict[str, Any] = Depends(check_can_simulate)) -> dict[str, object]:
+    if request.source_name and request.source_name != LOCAL_SOURCE_NAME:
+        raise HTTPException(status_code=400, detail="Advance day is only available for the built-in sample source.")
     result = simulator.advance_day(
         experiment_id=request.experiment_id,
         metric_name=request.metric_name,
@@ -139,7 +165,8 @@ def advance_day(request: AdvanceDayRequest, current_user: dict[str, Any] = Depen
 
 @app.post("/analyze")
 def analyze(request: AnalyzeRequest, current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, object]:
-    with StatsEngine() as engine:
+    source = resolve_data_source(request.source_name)
+    with StatsEngine(source=source) as engine:
         return engine.analyze_experiment(
             experiment_id=request.experiment_id,
             primary_metric_ids=request.primary_metric_ids,

@@ -26,6 +26,7 @@ DEMO_TABLES = (
     "metric_definitions",
     "conversion_event_settings",
 )
+LOCAL_SOURCE_NAME = "Built-in Sample"
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
@@ -53,6 +54,7 @@ def init_db() -> None:
         connection.execute(text("PRAGMA journal_mode=WAL;"))
     
     Base.metadata.create_all(bind=engine)
+    _migrate_legacy_schema()
     
     with SessionLocal() as session:
         seed_catalog(session)
@@ -102,3 +104,56 @@ def reset_db() -> None:
 
     with SessionLocal() as session:
         seed_catalog(session)
+
+
+def clear_source_data(*, source_name: str, user_prefix: str | None = None) -> None:
+    with engine.begin() as connection:
+        if user_prefix:
+            like_pattern = f"{user_prefix}%"
+            connection.execute(text("DELETE FROM metrics WHERE user_id LIKE :pattern"), {"pattern": like_pattern})
+            connection.execute(text("DELETE FROM conversion_events WHERE user_id LIKE :pattern"), {"pattern": like_pattern})
+            connection.execute(text("DELETE FROM dimensions WHERE user_id LIKE :pattern"), {"pattern": like_pattern})
+        else:
+            user_rows = connection.execute(
+                text("SELECT DISTINCT user_id FROM experiments WHERE source_name = :source_name"),
+                {"source_name": source_name},
+            ).fetchall()
+            user_ids = [row[0] for row in user_rows]
+            for user_id in user_ids:
+                connection.execute(text("DELETE FROM metrics WHERE user_id = :user_id"), {"user_id": user_id})
+                connection.execute(text("DELETE FROM conversion_events WHERE user_id = :user_id"), {"user_id": user_id})
+                connection.execute(text("DELETE FROM dimensions WHERE user_id = :user_id"), {"user_id": user_id})
+
+        experiment_rows = connection.execute(
+            text("SELECT experiment_id FROM experiments WHERE source_name = :source_name"),
+            {"source_name": source_name},
+        ).fetchall()
+        for row in experiment_rows:
+            connection.execute(
+                text("DELETE FROM experiment_metric_overrides WHERE experiment_id = :experiment_id"),
+                {"experiment_id": row[0]},
+            )
+        connection.execute(text("DELETE FROM experiments WHERE source_name = :source_name"), {"source_name": source_name})
+
+
+def _migrate_legacy_schema() -> None:
+    with engine.begin() as connection:
+        experiment_columns = {
+            row[1]
+            for row in connection.execute(text("PRAGMA table_info(experiments)")).fetchall()
+        }
+        if "source_name" not in experiment_columns:
+            connection.execute(text("ALTER TABLE experiments ADD COLUMN source_name TEXT"))
+        if "display_experiment_id" not in experiment_columns:
+            connection.execute(text("ALTER TABLE experiments ADD COLUMN display_experiment_id TEXT"))
+
+        connection.execute(
+            text(
+                """
+                UPDATE experiments
+                SET source_name = COALESCE(source_name, :source_name),
+                    display_experiment_id = COALESCE(display_experiment_id, experiment_id)
+                """
+            ),
+            {"source_name": LOCAL_SOURCE_NAME},
+        )

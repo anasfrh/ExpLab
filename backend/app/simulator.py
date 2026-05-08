@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 import numpy as np
 
-from .database import get_connection
+from .database import LOCAL_SOURCE_NAME, clear_source_data, get_connection
 
 
 COUNTRY_VALUES = ["US", "CA", "GB", "AU", "DE", "FR"]
@@ -43,6 +43,7 @@ class Simulator:
         user_prefix: str = "user",
         num_variants: int = 2,
         multiple_exposures_ratio: float = 0.0,
+        source_name: str = LOCAL_SOURCE_NAME,
     ) -> SimulationSummary:
         start_date = date.today() - timedelta(days=days - 1)
         all_dates = [start_date + timedelta(days=offset) for offset in range(days)]
@@ -115,8 +116,8 @@ class Simulator:
         with get_connection() as connection:
             connection.executemany("INSERT INTO dimensions(user_id, country_code, mcc, os) VALUES (?, ?, ?, ?)", dimensions_rows)
             connection.executemany(
-                "INSERT INTO experiments(user_id, experiment_id, variation_id, timestamp) VALUES (?, ?, ?, ?)",
-                experiments_rows,
+                "INSERT INTO experiments(user_id, experiment_id, source_name, display_experiment_id, variation_id, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+                [(user_id, experiment_id, source_name, experiment_id, variation, ts) for user_id, experiment_id, variation, ts in experiments_rows],
             )
             connection.executemany(
                 "INSERT INTO metrics(user_id, metric_name, value, date) VALUES (?, ?, ?, ?)",
@@ -145,6 +146,7 @@ class Simulator:
         metric_name: str,
         conversion_event_name: str,
         target_lift: float,
+        source_name: str = LOCAL_SOURCE_NAME,
     ) -> dict[str, str | int]:
         with get_connection() as connection:
             max_row = connection.execute("SELECT MAX(date) AS max_date FROM metrics WHERE metric_name = ?", (metric_name,)).fetchone()
@@ -157,8 +159,9 @@ class Simulator:
                 SELECT e.user_id, e.variation_id
                 FROM experiments e
                 WHERE e.experiment_id = ?
+                  AND e.source_name = ?
                 """,
-                (experiment_id,),
+                (experiment_id, source_name),
             ).fetchall()
             if not assignments:
                 raise ValueError(f"No experiment assignments found for {experiment_id}.")
@@ -277,6 +280,20 @@ class Simulator:
             },
         ]
         return [self.seed_experiment(**scenario) for scenario in scenarios]
+
+    def ensure_demo_portfolio(self) -> list[SimulationSummary]:
+        with get_connection() as connection:
+            existing = connection.execute(
+                "SELECT COUNT(*) FROM experiments WHERE source_name = ?",
+                (LOCAL_SOURCE_NAME,),
+            ).fetchone()[0]
+        if existing:
+            return []
+        return self.seed_demo_portfolio()
+
+    def reset_demo_portfolio(self) -> list[SimulationSummary]:
+        clear_source_data(source_name=LOCAL_SOURCE_NAME)
+        return self.seed_demo_portfolio()
 
     def _variant_lift_multiplier(self, variation: str, target_lift: float) -> float:
         try:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import math
 import sqlite3
 from dataclasses import asdict, dataclass
@@ -11,7 +12,11 @@ from scipy.stats import chi2, chi2_contingency, norm, ttest_ind
 from statsmodels.stats.multitest import multipletests
 
 from .database import get_connection
+from .models import DataSource
 from .schemas import MetricDefinition
+from .warehouse_adapters import DIMENSION_COLUMNS, WarehouseAdapter, warehouse_adapter_for
+
+logger = logging.getLogger(__name__)
 
 
 USER_LEVEL_SQL = """
@@ -82,11 +87,21 @@ class TestResult:
 
 
 class StatsEngine:
-    def __init__(self, connection: sqlite3.Connection | None = None) -> None:
+    def __init__(
+        self,
+        connection: sqlite3.Connection | None = None,
+        source: DataSource | None = None,
+        adapter: WarehouseAdapter | None = None,
+    ) -> None:
         self._owns_connection = connection is None
         self.connection = connection or get_connection()
+        self.source = source
+        self.adapter = adapter or (warehouse_adapter_for(source) if source is not None else None)
 
     def close(self) -> None:
+        if self.adapter is not None and hasattr(self.adapter, "close"):
+            self.adapter.close()
+            self.adapter = None
         if self._owns_connection and self.connection is not None:
             self.connection.close()
             self.connection = None
@@ -238,6 +253,8 @@ class StatsEngine:
 
     @lru_cache
     def _get_dimension_columns(self) -> list[str]:
+        if self.source is not None:
+            return DIMENSION_COLUMNS
         columns = self.connection.execute("PRAGMA table_info(dimensions)").fetchall()
         return [col["name"] for col in columns if col["name"] != "user_id"]
 
@@ -313,6 +330,8 @@ class StatsEngine:
             WITH experiment_users AS (
                 SELECT
                     experiment_id,
+                    MIN(display_experiment_id) AS display_experiment_id,
+                    MIN(source_name) AS source_name,
                     COUNT(DISTINCT user_id) AS users,
                     MIN(DATE(timestamp)) AS start_date
                 FROM experiments
@@ -335,6 +354,8 @@ class StatsEngine:
             )
             SELECT
                 u.experiment_id,
+                u.display_experiment_id,
+                u.source_name,
                 u.users,
                 u.start_date,
                 d.latest_metric_date,
@@ -345,7 +366,21 @@ class StatsEngine:
             ORDER BY u.start_date DESC, u.experiment_id
             """
         ).fetchall()
-        return [dict(row) for row in rows]
+        results = [dict(row) for row in rows]
+        source_rows = self.connection.execute("SELECT * FROM data_sources WHERE status = 'ready' ORDER BY name").fetchall()
+        for row in source_rows:
+            source = DataSource(**dict(row))
+            adapter: WarehouseAdapter | None = None
+            try:
+                adapter = warehouse_adapter_for(source)
+                results.extend(adapter.list_experiments())
+            except Exception:
+                logger.exception("Failed to list experiments for live source '%s'", source.name)
+                continue
+            finally:
+                if adapter is not None and hasattr(adapter, "close"):
+                    adapter.close()
+        return sorted(results, key=lambda item: (str(item["start_date"]), str(item["display_experiment_id"])), reverse=True)
 
     def sample_size(self, *, baseline_mean: float, baseline_stddev: float, mde: float, alpha: float, power: float) -> dict[str, float]:
         z_alpha = norm.ppf(1 - alpha / 2)
@@ -471,6 +506,8 @@ class StatsEngine:
         ]
 
     def _experiment_users_dataset(self, *, experiment_id: str) -> list[sqlite3.Row]:
+        if self.source is not None:
+            return self.adapter.fetch_experiment_users(experiment_id)
         dim_cols = self._get_dimension_columns()
         dim_selects = ", ".join(f"d.{col}" for col in dim_cols) if dim_cols else "''"
         query = f"""
@@ -494,6 +531,21 @@ class StatsEngine:
                 return "LEFT JOIN metrics m ON m.user_id = e.user_id\n  AND m.date BETWEEN e.d0 AND DATE(e.d0, '+' || :day_range || ' days')"
 
     def _metric_dataset(self, *, experiment_id: str, day_range: int, sql_expression: str, source_type: str) -> list[sqlite3.Row]:
+        if self.source is not None:
+            metric = next(
+                (
+                    item
+                    for item in self.get_metric_definitions(experiment_id=experiment_id)
+                    if item.sql_expression == sql_expression and item.source_type == source_type
+                ),
+                None,
+            )
+            return self.adapter.fetch_metric_dataset(
+                internal_experiment_id=experiment_id,
+                day_range=day_range,
+                source_type=source_type,
+                source_name=metric.source_name if metric else "",
+            )
         dim_cols = self._get_dimension_columns()
         dim_selects = "".join(f"d.{c},\n    " for c in dim_cols)
         dim_group_by = "".join(f"d.{c}, " for c in dim_cols)
@@ -511,6 +563,20 @@ class StatsEngine:
         return sql_expression
 
     def _analysis_sql(self, *, experiment_id: str, day_range: int, sql_expression: str, source_type: str) -> str:
+        if self.source is not None:
+            metric = next(
+                (
+                    item
+                    for item in self.get_metric_definitions(experiment_id=experiment_id)
+                    if item.sql_expression == sql_expression and item.source_type == source_type
+                ),
+                None,
+            )
+            return self.adapter.analysis_sql(
+                source_type=source_type,
+                source_name=metric.source_name if metric else "",
+                day_range=day_range,
+            )
         dim_cols = self._get_dimension_columns()
         dim_selects = "".join(f"d.{c},\n    " for c in dim_cols)
         dim_group_by = "".join(f"d.{c}, " for c in dim_cols)
@@ -690,6 +756,60 @@ class StatsEngine:
         split_dimension: str | None = None,
         split_value: str | None = None,
     ) -> list[dict[str, Any]]:
+        if self.source is not None:
+            metric = next(
+                (
+                    item
+                    for item in self.get_metric_definitions(experiment_id=experiment_id)
+                    if item.sql_expression == sql_expression and item.source_type == source_type
+                ),
+                None,
+            )
+            dataset = self.adapter.fetch_metric_time_series(
+                internal_experiment_id=experiment_id,
+                day_range=day_range,
+                source_type=source_type,
+                source_name=metric.source_name if metric else "",
+            )
+            if not dataset:
+                return []
+
+            ordered_variations = self._ordered_variations([str(row["variation_id"]) for row in dataset])
+            grouped_by_date: dict[str, list[dict[str, Any]]] = {}
+            for row in dataset:
+                grouped_by_date.setdefault(str(row["bucket_date"]), []).append(row)
+
+            series: list[dict[str, Any]] = []
+            for bucket_date in sorted(grouped_by_date):
+                date_rows = grouped_by_date[bucket_date]
+                if split_dimension and split_value is not None:
+                    date_rows = [row for row in date_rows if str(row[split_dimension]) == split_value]
+                if not date_rows:
+                    continue
+
+                try:
+                    date_result = self._run_group_test(date_rows, winsorize_percentile, skip_tests=False)
+                    comparisons = date_result.get("comparisons", [])
+                    variation_values = date_result.get("variation_values", {})
+                except ValueError:
+                    comparisons = []
+                    grouped_arrays = {
+                        variation: np.array([row["metric_value"] for row in date_rows if row["variation_id"] == variation], dtype=float)
+                        for variation in ordered_variations
+                    }
+                    variation_values = {
+                        variation: float(np.mean(values)) if len(values) > 0 else 0.0 for variation, values in grouped_arrays.items()
+                    }
+
+                series.append(
+                    {
+                        "date": bucket_date,
+                        "variation_values": variation_values,
+                        "comparisons": comparisons,
+                    }
+                )
+            return series
+
         dim_cols = self._get_dimension_columns()
         dim_selects = "".join(f"d.{c},\n    " for c in dim_cols)
         dim_group_by = "".join(f", d.{c}" for c in dim_cols)

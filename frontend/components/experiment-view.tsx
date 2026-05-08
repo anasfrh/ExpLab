@@ -23,7 +23,15 @@ function getVariationLabel(variation: string, variations: string[]) {
   return `Treatment ${index}`;
 }
 
-export function ExperimentView({ experimentId }: { experimentId: string }) {
+export function ExperimentView({
+  experimentId,
+  experimentLabel,
+  sourceName,
+}: {
+  experimentId: string;
+  experimentLabel?: string;
+  sourceName?: string;
+}) {
   const [availableMetrics, setAvailableMetrics] = useState<ExperimentMetric[]>([]);
   const [primaryMetricIds, setPrimaryMetricIds] = useState<string[]>([]);
   const [secondaryMetricIds, setSecondaryMetricIds] = useState<string[]>([]);
@@ -63,6 +71,7 @@ export function ExperimentView({ experimentId }: { experimentId: string }) {
         setStatus("Refreshing experiment results...");
         const analysisResponse = await analyze({
           experiment_id: experimentId,
+          source_name: sourceName,
           primary_metric_ids: primary,
           secondary_metric_ids: secondary,
           guardrail_metric_ids: guardrail,
@@ -82,7 +91,7 @@ export function ExperimentView({ experimentId }: { experimentId: string }) {
     startTransition(async () => {
       try {
         hasLoadedInitialAnalysis.current = false;
-        const catalog = await listExperimentMetrics(experimentId);
+        const catalog = await listExperimentMetrics(experimentId, sourceName);
         setAvailableMetrics(catalog.metrics);
         const primary = catalog.metrics.length > 0 ? [catalog.metrics[0].id] : [];
         const secondary = catalog.metrics.length > 1 ? catalog.metrics.slice(1, 3).map((m) => m.id) : [];
@@ -96,7 +105,7 @@ export function ExperimentView({ experimentId }: { experimentId: string }) {
         setStatus(error instanceof Error ? error.message : "Failed to load experiment metrics.");
       }
     });
-  }, [experimentId]);
+  }, [experimentId, sourceName]);
 
   useEffect(() => {
     if (
@@ -186,6 +195,7 @@ export function ExperimentView({ experimentId }: { experimentId: string }) {
         setStatus("Appending one more warehouse batch day...");
         await advanceDay({
           experiment_id: experimentId,
+          source_name: sourceName,
           metric_name: "revenue",
           conversion_event_name: "purchase",
           target_lift: 0.08,
@@ -242,7 +252,12 @@ export function ExperimentView({ experimentId }: { experimentId: string }) {
       <header className="topbar">
         <div>
           <div className="topbar-kicker">Experiment Detail</div>
-          <h1>{experimentId}</h1>
+          <h1>{experimentLabel ?? experimentId}</h1>
+          {sourceName ? (
+            <div style={{ marginTop: 6 }}>
+              <span className="section-tag">{sourceName}</span>
+            </div>
+          ) : null}
         </div>
         <div className="topbar-meta">
           <div className="meta-tile">
@@ -276,7 +291,7 @@ export function ExperimentView({ experimentId }: { experimentId: string }) {
             <button className="button button-primary button-compact" disabled={isPending} onClick={() => refreshAll(primaryMetricIds, secondaryMetricIds, guardrailMetricIds)}>
               Refresh Results
             </button>
-            <button className="button button-secondary button-compact" disabled={isPending} onClick={handleAdvanceDay}>
+            <button className="button button-secondary button-compact" disabled={isPending || (!!sourceName && sourceName !== "Built-in Sample")} onClick={handleAdvanceDay}>
               Advance Batch Day
             </button>
             <button className="button button-secondary button-compact" disabled={!analysis} onClick={exportCsv}>

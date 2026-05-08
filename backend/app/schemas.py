@@ -26,6 +26,7 @@ class AnalyzeRequest(BaseModel):
     split_dimension: DimensionName | None = None
     multiple_testing_method: Literal["bonferroni", "benjamini-hochberg"] = "benjamini-hochberg"
     include_time_series: bool = False
+    source_name: str | None = None
 
 
 class MetricDefinition(BaseModel):
@@ -62,6 +63,7 @@ class AdvanceDayRequest(BaseModel):
     metric_name: str = "revenue"
     conversion_event_name: str = "purchase"
     target_lift: float = Field(default=0.08, ge=-0.95, le=10.0)
+    source_name: str | None = None
 
 
 class SampleSizeRequest(BaseModel):
@@ -81,3 +83,18 @@ class PowerCalculatorRequest(BaseModel):
     mde: float = Field(default=0.05, gt=0.0, lt=1.0)
     alpha: float = Field(default=0.05, gt=0.0, lt=1.0)
     power: float = Field(default=0.80, gt=0.0, lt=1.0)
+
+
+class DataSourceCreateRequest(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    source_type: Literal["postgresql"] = "postgresql"
+    host: str = Field(min_length=1, max_length=255)
+    port: int = Field(default=5432, ge=1, le=65535)
+    database_name: str = Field(min_length=1, max_length=255)
+    username: str = Field(min_length=1, max_length=255)
+    password: str = Field(min_length=1, max_length=255)
+    schema_name: str = Field(default="public", min_length=1, max_length=255)
+    experiments_table: str = Field(default="experiments", min_length=1, max_length=255)
+    metrics_table: str = Field(default="metrics", min_length=1, max_length=255)
+    conversion_events_table: str = Field(default="conversion_events", min_length=1, max_length=255)
+    dimensions_table: str = Field(default="dimensions", min_length=1, max_length=255)

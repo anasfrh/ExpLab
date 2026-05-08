@@ -2,8 +2,9 @@
 
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../../lib/AuthContext";
-import { getUsers, createUser, updateUser, resetUserPassword, deleteUser, updateMyPassword } from "../../lib/api";
+import { createDataSource, createUser, deleteUser, getUsers, listDataSources, resetUserPassword, syncDataSource, testDataSourceConnection, updateMyPassword, updateUser } from "../../lib/api";
 import { ConfirmModal, NoticeModal } from "../../components/modals";
+import { DataSourceSummary } from "../../lib/types";
 
 type ModalState =
   | { type: "none" }
@@ -15,12 +16,32 @@ type ModalState =
 export default function SettingsPage() {
   const { user, logout } = useAuth();
   const [users, setUsers] = useState<any[]>([]);
+  const [dataSources, setDataSources] = useState<DataSourceSummary[]>([]);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("user");
   const [canSimulate, setCanSimulate] = useState(false);
   const [canEditMetrics, setCanEditMetrics] = useState(false);
+  const [creatingSource, setCreatingSource] = useState(false);
+  const [testingSourceConnection, setTestingSourceConnection] = useState(false);
+  const [syncingSourceId, setSyncingSourceId] = useState<string | null>(null);
+  const [showAddSourceForm, setShowAddSourceForm] = useState(false);
+  const [sourceConnectionStatus, setSourceConnectionStatus] = useState<{ tone: "success" | "error"; message: string } | null>(null);
+  const [sourceForm, setSourceForm] = useState({
+    name: "",
+    source_type: "postgresql" as const,
+    host: "",
+    port: "5432",
+    database_name: "",
+    username: "",
+    password: "",
+    schema_name: "public",
+    experiments_table: "experiments",
+    metrics_table: "metrics",
+    conversion_events_table: "conversion_events",
+    dimensions_table: "dimensions",
+  });
 
   const [myCurrentPassword, setMyCurrentPassword] = useState("");
   const [myNewPassword, setMyNewPassword] = useState("");
@@ -40,8 +61,20 @@ export default function SettingsPage() {
     }
   };
 
+  const loadDataSources = async () => {
+    if (user?.role === "admin") {
+      try {
+        const data = await listDataSources();
+        setDataSources(data);
+      } catch {}
+    }
+  };
+
   useEffect(() => {
-    if (user) loadUsers();
+    if (user) {
+      loadUsers();
+      loadDataSources();
+    }
   }, [user]);
 
   // ── My password ──────────────────────────────────────────
@@ -134,6 +167,76 @@ export default function SettingsPage() {
       setModal({ type: "notice", title: "Password Reset", message: "The user's password has been reset successfully." });
     } catch {
       setModal({ type: "notice", title: "Error", message: "Failed to reset the password." });
+    }
+  };
+
+  const handleCreateSource = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreatingSource(true);
+    setSourceConnectionStatus(null);
+    try {
+      const response = await createDataSource({
+        ...sourceForm,
+        port: Number(sourceForm.port),
+      });
+      setSourceForm({
+        name: "",
+        source_type: "postgresql",
+        host: "",
+        port: "5432",
+        database_name: "",
+        username: "",
+        password: "",
+        schema_name: "public",
+        experiments_table: "experiments",
+        metrics_table: "metrics",
+        conversion_events_table: "conversion_events",
+        dimensions_table: "dimensions",
+      });
+      await loadDataSources();
+      setShowAddSourceForm(false);
+      setModal({
+        type: "notice",
+        title: "Source Saved",
+        message: `${response.source.name} is ready. Use Import Data to pull experiments into ExpLab.`,
+      });
+    } catch (err: any) {
+      setModal({ type: "notice", title: "Source Error", message: err.message || "Failed to connect the data source." });
+    } finally {
+      setCreatingSource(false);
+    }
+  };
+
+  const handleTestSourceConnection = async () => {
+    setTestingSourceConnection(true);
+    setSourceConnectionStatus(null);
+    try {
+      const response = await testDataSourceConnection({
+        ...sourceForm,
+        port: Number(sourceForm.port),
+      });
+      setSourceConnectionStatus({ tone: "success", message: response.message });
+    } catch (err: any) {
+      setSourceConnectionStatus({ tone: "error", message: err.message || "Connection test failed." });
+    } finally {
+      setTestingSourceConnection(false);
+    }
+  };
+
+  const handleSyncSource = async (sourceId: string) => {
+    setSyncingSourceId(sourceId);
+    try {
+      const response = await syncDataSource(sourceId);
+      await loadDataSources();
+      setModal({
+        type: "notice",
+        title: "Source Synced",
+        message: `Refreshed ${response.source.name} with ${response.sync_summary.imported_experiment_count} experiments.`,
+      });
+    } catch (err: any) {
+      setModal({ type: "notice", title: "Sync Error", message: err.message || "Failed to sync the data source." });
+    } finally {
+      setSyncingSourceId(null);
     }
   };
 
@@ -317,6 +420,173 @@ export default function SettingsPage() {
                 ))}
                 {users.length === 0 && (
                   <tr><td colSpan={5} style={{ textAlign: "center", padding: 20 }}>No users found</td></tr>
+                )}
+              </tbody>
+            </table>
+          </section>
+        )}
+
+        {user.role === "admin" && (
+          <section className="panel" style={{ gridColumn: "1 / -1" }}>
+            <div className="panel-header">
+              <div>
+                <div className="section-tag">Administration</div>
+                <h3>Connected Data Sources</h3>
+              </div>
+              <div className="panel-caption">
+                Admins can register Postgres warehouses that follow the ExpLab schema. Imported experiments keep their source tag in the registry.
+              </div>
+            </div>
+
+            <div style={{ padding: "0 20px 20px", display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ color: "var(--muted)", fontSize: "0.9rem" }}>
+                Save a source first, test that credentials can connect, then import the experiment data when you are ready.
+              </div>
+              <button
+                className="button button-primary"
+                type="button"
+                onClick={() => {
+                  setShowAddSourceForm((current) => !current);
+                  setSourceConnectionStatus(null);
+                }}
+                style={{ padding: "8px 16px" }}
+              >
+                {showAddSourceForm ? "Hide Source Form" : "Add Source"}
+              </button>
+            </div>
+
+            {showAddSourceForm ? (
+              <form onSubmit={handleCreateSource} style={{ padding: "0 20px 20px", display: "grid", gap: 14 }}>
+                <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
+                  <div>
+                    <label style={{ display: "block", marginBottom: 4, fontSize: "0.9rem" }}>Source Name</label>
+                    <input value={sourceForm.name} onChange={(e) => setSourceForm((current) => ({ ...current, name: e.target.value }))} required style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid var(--border)", background: "var(--bg)" }} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", marginBottom: 4, fontSize: "0.9rem" }}>Database Type</label>
+                    <select value={sourceForm.source_type} disabled style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid var(--border)", background: "var(--bg)" }}>
+                      <option value="postgresql">PostgreSQL</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: "block", marginBottom: 4, fontSize: "0.9rem" }}>Host</label>
+                    <input value={sourceForm.host} onChange={(e) => setSourceForm((current) => ({ ...current, host: e.target.value }))} required style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid var(--border)", background: "var(--bg)" }} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", marginBottom: 4, fontSize: "0.9rem" }}>Port</label>
+                    <input value={sourceForm.port} onChange={(e) => setSourceForm((current) => ({ ...current, port: e.target.value }))} required inputMode="numeric" style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid var(--border)", background: "var(--bg)" }} />
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
+                  <div>
+                    <label style={{ display: "block", marginBottom: 4, fontSize: "0.9rem" }}>Database Name</label>
+                    <input value={sourceForm.database_name} onChange={(e) => setSourceForm((current) => ({ ...current, database_name: e.target.value }))} required style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid var(--border)", background: "var(--bg)" }} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", marginBottom: 4, fontSize: "0.9rem" }}>Username</label>
+                    <input value={sourceForm.username} onChange={(e) => setSourceForm((current) => ({ ...current, username: e.target.value }))} required style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid var(--border)", background: "var(--bg)" }} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", marginBottom: 4, fontSize: "0.9rem" }}>Password</label>
+                    <input type="password" value={sourceForm.password} onChange={(e) => setSourceForm((current) => ({ ...current, password: e.target.value }))} required style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid var(--border)", background: "var(--bg)" }} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", marginBottom: 4, fontSize: "0.9rem" }}>Schema</label>
+                    <input value={sourceForm.schema_name} onChange={(e) => setSourceForm((current) => ({ ...current, schema_name: e.target.value }))} required style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid var(--border)", background: "var(--bg)" }} />
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
+                  <div>
+                    <label style={{ display: "block", marginBottom: 4, fontSize: "0.9rem" }}>Experiments Table</label>
+                    <input value={sourceForm.experiments_table} onChange={(e) => setSourceForm((current) => ({ ...current, experiments_table: e.target.value }))} required style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid var(--border)", background: "var(--bg)" }} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", marginBottom: 4, fontSize: "0.9rem" }}>Metrics Table</label>
+                    <input value={sourceForm.metrics_table} onChange={(e) => setSourceForm((current) => ({ ...current, metrics_table: e.target.value }))} required style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid var(--border)", background: "var(--bg)" }} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", marginBottom: 4, fontSize: "0.9rem" }}>Conversion Events Table</label>
+                    <input value={sourceForm.conversion_events_table} onChange={(e) => setSourceForm((current) => ({ ...current, conversion_events_table: e.target.value }))} required style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid var(--border)", background: "var(--bg)" }} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", marginBottom: 4, fontSize: "0.9rem" }}>Dimensions Table</label>
+                    <input value={sourceForm.dimensions_table} onChange={(e) => setSourceForm((current) => ({ ...current, dimensions_table: e.target.value }))} required style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid var(--border)", background: "var(--bg)" }} />
+                  </div>
+                </div>
+
+                {sourceConnectionStatus ? (
+                  <div
+                    style={{
+                      fontSize: "0.9rem",
+                      color: sourceConnectionStatus.tone === "success" ? "var(--success, #8ad48a)" : "var(--danger)",
+                      padding: "10px 12px",
+                      background: sourceConnectionStatus.tone === "success" ? "rgba(76, 175, 80, 0.12)" : "var(--danger-alpha)",
+                      borderRadius: 6,
+                    }}
+                  >
+                    {sourceConnectionStatus.message}
+                  </div>
+                ) : null}
+
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                  <div style={{ color: "var(--muted)", fontSize: "0.9rem" }}>
+                    Test Connection only verifies that ExpLab can reach the database. Import happens later from the source list.
+                  </div>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    <button className="button button-secondary" type="button" disabled={testingSourceConnection} onClick={handleTestSourceConnection} style={{ padding: "8px 16px" }}>
+                      {testingSourceConnection ? "Testing..." : "Test Connection"}
+                    </button>
+                    <button className="button button-primary" type="submit" disabled={creatingSource} style={{ padding: "8px 16px" }}>
+                      {creatingSource ? "Saving..." : "Save Source"}
+                    </button>
+                  </div>
+                </div>
+              </form>
+            ) : null}
+
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Source</th>
+                  <th>Database</th>
+                  <th>Status</th>
+                  <th>Imported</th>
+                  <th>Last Sync</th>
+                  <th style={{ textAlign: "right" }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dataSources.map((source) => (
+                  <tr key={source.id}>
+                    <td>
+                      <div style={{ display: "grid", gap: 4 }}>
+                        <strong>{source.name}</strong>
+                        <span style={{ color: "var(--muted)", fontSize: "0.85rem" }}>{source.host}:{source.port}/{source.database_name}</span>
+                      </div>
+                    </td>
+                    <td>{source.username}@{source.schema_name}</td>
+                    <td>
+                      <span className="section-tag">{source.status}</span>
+                      {source.last_error ? <div style={{ marginTop: 6, color: "var(--danger)", fontSize: "0.8rem", maxWidth: 320 }}>{source.last_error}</div> : null}
+                    </td>
+                    <td>{source.imported_experiment_count} exp / {source.imported_user_count} users</td>
+                    <td>{source.last_synced_at ? new Date(source.last_synced_at).toLocaleString() : "Never"}</td>
+                    <td style={{ textAlign: "right" }}>
+                      <button
+                        className="button button-secondary"
+                        style={{ padding: "4px 8px" }}
+                        disabled={syncingSourceId === source.id}
+                        onClick={() => handleSyncSource(source.id)}
+                      >
+                        {syncingSourceId === source.id ? "Importing..." : "Import Data"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {dataSources.length === 0 && (
+                  <tr><td colSpan={6} style={{ textAlign: "center", padding: 20 }}>No external sources configured yet.</td></tr>
                 )}
               </tbody>
             </table>
