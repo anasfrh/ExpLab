@@ -133,12 +133,14 @@ export function DimensionDistributionCard({
 export function MetricSeriesCard({
   row,
   variations,
+  selectedTreatment,
   getVariationLabel,
   onEdit,
   onRemove,
 }: {
   row: AnalyzeResponse["metric_rows"][number];
   variations: string[];
+  selectedTreatment: string;
   getVariationLabel: (variation: string, variations: string[]) => string;
   onEdit: (metricId: string, windowDays: number, winsorizePercentile: number | null) => void;
   onRemove: (metricId: string) => void;
@@ -147,17 +149,22 @@ export function MetricSeriesCard({
   const height = 220;
   const padding = { top: 20, right: 20, bottom: 32, left: 44 };
   const points = row.time_series;
+  const lineColors = ["#22c55e", "#f59e0b", "#8b5cf6", "#ef4444", "#58b8ff"];
   const treatmentVariants = variations.filter((v) => v !== row.baseline_variant);
+  const activeVariant = treatmentVariants.includes(selectedTreatment) ? selectedTreatment : treatmentVariants[0] ?? "";
+  const activeVariantIndex = treatmentVariants.indexOf(activeVariant);
+  const activeColor = lineColors[(activeVariantIndex >= 0 ? activeVariantIndex : 0) % lineColors.length];
 
   const flattened = points.flatMap((point) =>
-    (point.comparisons || []).flatMap((c) => [c.ci_low, c.ci_high, c.relative_lift])
+    (point.comparisons || [])
+      .filter((c) => c.variant === activeVariant)
+      .flatMap((c) => [c.ci_low, c.ci_high, c.relative_lift])
   );
   const minValue = Math.min(...flattened, 0);
   const maxValue = Math.max(...flattened, 0.0001);
   const valueRange = Math.max(0.0001, maxValue - minValue);
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
-  const lineColors = ["#22c55e", "#f59e0b", "#8b5cf6", "#ef4444", "#58b8ff"];
   const [activePointIndex, setActivePointIndex] = useState<number | null>(null);
 
   const pointToSvg = (value: number, index: number) => {
@@ -175,14 +182,12 @@ export function MetricSeriesCard({
         (points.length === 1 ? chartWidth / 2 : (activePointIndex / Math.max(1, points.length - 1)) * chartWidth)
       : null;
   const activeY =
-    activePointIndex !== null && activePoint && treatmentVariants.length > 0
-      ? Math.min(
-          ...treatmentVariants.map((variation) => {
-            const comp = activePoint.comparisons?.find((c) => c.variant === variation);
-            const value = comp ? comp.relative_lift : 0;
-            return padding.top + (1 - (value - minValue) / valueRange) * chartHeight;
-          })
-        )
+    activePointIndex !== null && activePoint && activeVariant
+      ? (() => {
+          const comp = activePoint.comparisons?.find((c) => c.variant === activeVariant);
+          const value = comp ? comp.relative_lift : 0;
+          return padding.top + (1 - (value - minValue) / valueRange) * chartHeight;
+        })()
       : null;
 
   return (
@@ -247,42 +252,41 @@ export function MetricSeriesCard({
               </text>
             );
           })}
-          {treatmentVariants.map((variation, variationIndex) => {
-            const color = lineColors[variationIndex % lineColors.length];
+          {activeVariant ? (() => {
             const polylinePoints = points
               .map((point, index) => {
-                const comp = point.comparisons?.find((c) => c.variant === variation);
+                const comp = point.comparisons?.find((c) => c.variant === activeVariant);
                 return pointToSvg(comp ? comp.relative_lift : 0, index);
               })
               .join(" ");
 
             const polygonPoints = [
               ...points.map((point, index) => {
-                const comp = point.comparisons?.find((c) => c.variant === variation);
+                const comp = point.comparisons?.find((c) => c.variant === activeVariant);
                 return pointToSvg(comp ? comp.ci_high : 0, index);
               }),
               ...points.slice().reverse().map((point, reversedIndex) => {
                 const index = points.length - 1 - reversedIndex;
-                const comp = point.comparisons?.find((c) => c.variant === variation);
+                const comp = point.comparisons?.find((c) => c.variant === activeVariant);
                 return pointToSvg(comp ? comp.ci_low : 0, index);
               }),
             ].join(" ");
 
             return (
-              <g key={variation}>
-                <polygon fill={color} fillOpacity="0.1" points={polygonPoints} />
-                <polyline fill="none" stroke={color} strokeWidth="2.5" points={polylinePoints} />
+              <g key={activeVariant}>
+                <polygon fill={activeColor} fillOpacity="0.1" points={polygonPoints} />
+                <polyline fill="none" stroke={activeColor} strokeWidth="2.5" points={polylinePoints} />
                 {points.map((point, index) => {
-                  const comp = point.comparisons?.find((c) => c.variant === variation);
+                  const comp = point.comparisons?.find((c) => c.variant === activeVariant);
                   const value = comp ? comp.relative_lift : 0;
                   const [cx, cy] = pointToSvg(value, index).split(",").map(Number);
                   return (
                     <circle
-                      key={`${variation}-${point.date}`}
+                      key={`${activeVariant}-${point.date}`}
                       cx={cx}
                       cy={cy}
                       r={activePointIndex === index ? 5 : 4}
-                      fill={color}
+                      fill={activeColor}
                       className="timeseries-point"
                       onMouseEnter={() => setActivePointIndex(index)}
                     />
@@ -290,9 +294,9 @@ export function MetricSeriesCard({
                 })}
               </g>
             );
-          })}
+          })() : null}
         </svg>
-        {activePoint && activeX !== null && activeY !== null && treatmentVariants.length > 0 ? (
+        {activePoint && activeX !== null && activeY !== null && activeVariant ? (
           <div
             className="timeseries-tooltip"
             style={{
@@ -303,16 +307,15 @@ export function MetricSeriesCard({
           >
             <div className="timeseries-tooltip-date">{formatShortDate(activePoint.date)}</div>
             <div className="timeseries-tooltip-list">
-              {treatmentVariants.map((variation, variationIndex) => {
-                const comp = activePoint.comparisons?.find((c) => c.variant === variation);
+              {(() => {
+                const comp = activePoint.comparisons?.find((c) => c.variant === activeVariant);
                 if (!comp) return null;
-                const color = lineColors[variationIndex % lineColors.length];
                 return (
-                  <div key={variation} style={{ display: "flex", flexDirection: "column", gap: "2px", marginBottom: "8px" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "2px", marginBottom: "8px" }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                        <span className="timeseries-swatch" style={{ background: color }} />
-                        <span>{getVariationLabel(variation, variations)} vs {getVariationLabel(row.baseline_variant, variations)}</span>
+                        <span className="timeseries-swatch" style={{ background: activeColor }} />
+                        <span>{getVariationLabel(activeVariant, variations)} vs {getVariationLabel(row.baseline_variant, variations)}</span>
                       </div>
                       <strong>{formatValue(comp.relative_lift, "percent")}</strong>
                     </div>
@@ -321,18 +324,18 @@ export function MetricSeriesCard({
                     </div>
                   </div>
                 );
-              })}
+              })()}
             </div>
           </div>
         ) : null}
       </div>
       <div className="timeseries-legend">
-        {treatmentVariants.map((variation, variationIndex) => (
-          <div key={variation} className="timeseries-legend-item">
-            <span className="timeseries-swatch" style={{ background: lineColors[variationIndex % lineColors.length] }} />
-            <span>{getVariationLabel(variation, variations)} vs {getVariationLabel(row.baseline_variant, variations)}</span>
+        {activeVariant ? (
+          <div className="timeseries-legend-item">
+            <span className="timeseries-swatch" style={{ background: activeColor }} />
+            <span>{getVariationLabel(activeVariant, variations)} vs {getVariationLabel(row.baseline_variant, variations)}</span>
           </div>
-        ))}
+        ) : null}
       </div>
     </section>
   );
