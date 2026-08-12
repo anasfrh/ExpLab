@@ -611,11 +611,29 @@ export function ExperimentView({
           </div>
         ) : (
           <div className="timeseries-grid">
+            <div className="headline-panel" style={{ padding: "12px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+              <div>
+                <div className="section-tag" style={{ marginBottom: 6 }}>Time Series</div>
+                <div style={{ fontSize: "0.9rem", color: "var(--muted)" }}>
+                  Showing relative lift for one treatment against {getVariationLabel(baselineVariant, variations)}.
+                </div>
+              </div>
+              <div className="field" style={{ margin: 0 }}>
+                <select style={{ padding: "6px 10px", fontSize: "0.85rem" }} value={activeTreatment} onChange={(e) => setSelectedTreatment(e.target.value)} disabled={treatmentVariants.length <= 1}>
+                  {treatmentVariants.map((variation) => (
+                    <option key={variation} value={variation}>
+                      {getVariationLabel(variation, variations)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
             {analysis?.metric_rows.map((row) => (
               <MetricSeriesCard
                 key={row.metric_id}
                 row={row}
                 variations={variations}
+                selectedTreatment={activeTreatment}
                 getVariationLabel={getVariationLabel}
                 onEdit={openEditor}
                 onRemove={removeMetric}
