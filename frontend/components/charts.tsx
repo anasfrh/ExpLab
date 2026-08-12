@@ -26,6 +26,13 @@ export function DimensionDistributionCard({
   const barGroupWidth = Math.max(24, bucketWidth - groupPadding);
   const barWidth = barGroupWidth / Math.max(1, variations.length);
   const lineColors = ["#006fee", "#3b82f6", "#22c55e", "#f59e0b", "#ef4444"];
+  const [activeBar, setActiveBar] = useState<{
+    bucketName: string;
+    variation: string;
+    count: number;
+    x: number;
+    y: number;
+  } | null>(null);
 
   return (
     <section className="panel checks-card">
@@ -36,44 +43,81 @@ export function DimensionDistributionCard({
           <div className="table-secondary">Chi-squared p-value {formatPValue(dimensionCheck.p_value)}</div>
         </div>
       </div>
-      <svg viewBox={`0 0 ${width} ${height}`} className="timeseries-chart" role="img" aria-label={`${dimensionCheck.dimension} user distribution by variant`}>
-        {[0, 0.25, 0.5, 0.75, 1].map((tick) => {
-          const y = padding.top + tick * chartHeight;
-          return <line key={tick} x1={padding.left} y1={y} x2={width - padding.right} y2={y} className="timeseries-gridline" />;
-        })}
-        {buckets.map(([bucketName, counts], bucketIndex) => {
-          const groupX = padding.left + bucketIndex * bucketWidth;
-          return (
-            <g key={bucketName}>
-              {variations.map((variation, variationIndex) => {
-                const count = counts[variation] ?? 0;
-                const barHeight = (count / maxCount) * chartHeight;
-                const x = groupX + variationIndex * barWidth + groupPadding / 2;
-                const y = padding.top + chartHeight - barHeight;
-                return (
-                  <rect
-                    key={`${bucketName}-${variation}`}
-                    x={x}
-                    y={y}
-                    width={Math.max(8, barWidth - 4)}
-                    height={barHeight}
-                    rx={4}
-                    fill={lineColors[variationIndex % lineColors.length]}
-                  />
-                );
-              })}
-              <text
-                x={groupX + bucketWidth / 2}
-                y={height - 12}
-                textAnchor="middle"
-                className="timeseries-axis-label"
-              >
-                {bucketName}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
+      <div className="timeseries-chart-shell" onMouseLeave={() => setActiveBar(null)}>
+        <svg viewBox={`0 0 ${width} ${height}`} className="timeseries-chart" role="img" aria-label={`${dimensionCheck.dimension} user distribution by variant`}>
+          {[0, 0.25, 0.5, 0.75, 1].map((tick) => {
+            const y = padding.top + tick * chartHeight;
+            return <line key={tick} x1={padding.left} y1={y} x2={width - padding.right} y2={y} className="timeseries-gridline" />;
+          })}
+          {buckets.map(([bucketName, counts], bucketIndex) => {
+            const groupX = padding.left + bucketIndex * bucketWidth;
+            return (
+              <g key={bucketName}>
+                {variations.map((variation, variationIndex) => {
+                  const count = counts[variation] ?? 0;
+                  const barHeight = (count / maxCount) * chartHeight;
+                  const x = groupX + variationIndex * barWidth + groupPadding / 2;
+                  const y = padding.top + chartHeight - barHeight;
+                  const renderedBarWidth = Math.max(8, barWidth - 4);
+                  return (
+                    <rect
+                      key={`${bucketName}-${variation}`}
+                      x={x}
+                      y={y}
+                      width={renderedBarWidth}
+                      height={barHeight}
+                      rx={4}
+                      fill={lineColors[variationIndex % lineColors.length]}
+                      style={{ cursor: "pointer" }}
+                      onMouseEnter={() =>
+                        setActiveBar({
+                          bucketName,
+                          variation,
+                          count,
+                          x: x + renderedBarWidth / 2,
+                          y,
+                        })
+                      }
+                    >
+                      <title>{`${bucketName} • ${getVariationLabel(variation, variations)}: ${count}`}</title>
+                    </rect>
+                  );
+                })}
+                <text
+                  x={groupX + bucketWidth / 2}
+                  y={height - 12}
+                  textAnchor="middle"
+                  className="timeseries-axis-label"
+                >
+                  {bucketName}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+        {activeBar ? (
+          <div
+            className="timeseries-tooltip"
+            style={{
+              left: `${Math.min(width - 250, Math.max(12, activeBar.x + 14))}px`,
+              top: `${Math.max(12, activeBar.y - 8)}px`,
+              width: "220px",
+            }}
+          >
+            <div className="timeseries-tooltip-date">{activeBar.bucketName}</div>
+            <div className="timeseries-tooltip-list">
+              <div className="timeseries-tooltip-line">
+                <span
+                  className="timeseries-swatch"
+                  style={{ background: lineColors[variations.indexOf(activeBar.variation) % lineColors.length] }}
+                />
+                <span>{getVariationLabel(activeBar.variation, variations)}</span>
+                <strong>{activeBar.count}</strong>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
       <div className="timeseries-legend">
         {variations.map((variation, variationIndex) => (
           <div key={variation} className="timeseries-legend-item">
