@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker, Session
 from .models import (
     Base,
     ConversionEventSetting,
+    GlobalAnalysisSetting,
     MetricDefinition,
 )
 
@@ -58,6 +59,7 @@ def init_db() -> None:
     
     with SessionLocal() as session:
         seed_catalog(session)
+        seed_global_analysis_settings(session)
 
 
 from sqlalchemy import func
@@ -93,6 +95,19 @@ def seed_catalog(session: Session) -> None:
     session.commit()
 
 
+def seed_global_analysis_settings(session: Session) -> None:
+    existing = session.get(GlobalAnalysisSetting, 1)
+    if existing is None:
+        session.add(
+            GlobalAnalysisSetting(
+                id=1,
+                minimum_users_per_leg=100,
+                minimum_conversions_per_leg=25,
+            )
+        )
+        session.commit()
+
+
 def reset_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with engine.begin() as connection:
@@ -104,6 +119,7 @@ def reset_db() -> None:
 
     with SessionLocal() as session:
         seed_catalog(session)
+        seed_global_analysis_settings(session)
 
 
 def clear_source_data(*, source_name: str, user_prefix: str | None = None) -> None:

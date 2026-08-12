@@ -1,4 +1,7 @@
-export function formatValue(value: number, format: "percent" | "currency" | "number" | string) {
+export function formatValue(value: number | null | undefined, format: "percent" | "currency" | "number" | string) {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return "n/a";
+  }
   if (format === "percent") {
     return `${(value * 100).toFixed(2)}%`;
   }
@@ -14,7 +17,10 @@ export function formatValue(value: number, format: "percent" | "currency" | "num
   return Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
 }
 
-export function formatPValue(value: number) {
+export function formatPValue(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return "n/a";
+  }
   return value < 0.0001 ? "<0.0001" : value.toFixed(4);
 }
 

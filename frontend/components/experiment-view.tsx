@@ -9,6 +9,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import {
   advanceDay,
   analyze,
+  updateExperimentAnalysisThresholds,
   listExperimentMetrics,
   updateExperimentMetricOverride,
 } from "../lib/api";
@@ -39,6 +40,10 @@ export function ExperimentView({
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
   const [status, setStatus] = useState("Loading experiment analysis...");
   const [editingMetricId, setEditingMetricId] = useState<string | null>(null);
+  const [editingThresholds, setEditingThresholds] = useState(false);
+  const [thresholdOverrideEnabled, setThresholdOverrideEnabled] = useState(false);
+  const [thresholdUsers, setThresholdUsers] = useState(100);
+  const [thresholdConversions, setThresholdConversions] = useState(25);
   const [showGlobalSql, setShowGlobalSql] = useState<boolean>(false);
   const [resultsView, setResultsView] = useState<"table" | "timeseries">("table");
   const [showExperimentChecks, setShowExperimentChecks] = useState(false);
@@ -189,6 +194,32 @@ export function ExperimentView({
     });
   };
 
+  const openThresholdEditor = () => {
+    const thresholds = analysis?.analysis_thresholds;
+    if (!thresholds) {
+      return;
+    }
+    setThresholdOverrideEnabled(thresholds.has_experiment_override);
+    setThresholdUsers(thresholds.minimum_users_per_leg);
+    setThresholdConversions(thresholds.minimum_conversions_per_leg);
+    setEditingThresholds(true);
+  };
+
+  const saveThresholdOverride = () => {
+    startTransition(async () => {
+      try {
+        await updateExperimentAnalysisThresholds(experimentId, thresholdOverrideEnabled ? {
+          minimum_users_per_leg: thresholdUsers,
+          minimum_conversions_per_leg: thresholdConversions,
+        } : {});
+        setEditingThresholds(false);
+        refreshAll(primaryMetricIds, secondaryMetricIds, guardrailMetricIds);
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Could not save analysis thresholds.");
+      }
+    });
+  };
+
   const handleAdvanceDay = () => {
     startTransition(async () => {
       try {
@@ -225,8 +256,8 @@ export function ExperimentView({
           `"${getVariationLabel(comparison.variant, variations)}"`,
           `"${getVariationLabel(comparison.baseline_variant, variations)}"`,
           comparison.relative_lift.toString(),
-          comparison.ci_low.toString(),
-          comparison.ci_high.toString(),
+          comparison.ci_low?.toString() || "n/a",
+          comparison.ci_high?.toString() || "n/a",
           comparison.adjusted_p_value?.toString() || "n/a",
           isStatSig.toString(),
         ]);
@@ -294,6 +325,9 @@ export function ExperimentView({
             <button className="button button-secondary button-compact" disabled={isPending || (!!sourceName && sourceName !== "Built-in Sample")} onClick={handleAdvanceDay}>
               Advance Batch Day
             </button>
+            <button className="button button-secondary button-compact" disabled={isPending || !analysis} onClick={openThresholdEditor}>
+              Threshold Override
+            </button>
             <button className="button button-secondary button-compact" disabled={!analysis} onClick={exportCsv}>
               Export CSV
             </button>
@@ -360,6 +394,14 @@ export function ExperimentView({
         <div className="assumption-tile">
           <span className="meta-label">Metrics</span>
           <strong>Window plus winsorization when supported</strong>
+        </div>
+        <div className="assumption-tile">
+          <span className="meta-label">Inference Thresholds</span>
+          <strong>
+            {analysis
+              ? `${analysis.analysis_thresholds.minimum_users_per_leg} users + ${analysis.analysis_thresholds.minimum_conversions_per_leg} conversions / leg`
+              : "Loading..."}
+          </strong>
         </div>
       </section>
 
@@ -546,12 +588,14 @@ export function ExperimentView({
                                 <div className="lift-cell">
                                   {selectedComparison ? (() => {
                                     const comparison = selectedComparison;
-                                    const scaleMin = Math.min(comparison.ci_low, comparison.ci_high, 0);
-                                    const scaleMax = Math.max(comparison.ci_low, comparison.ci_high, 0);
+                                    const ciLow = comparison.ci_low ?? comparison.relative_lift;
+                                    const ciHigh = comparison.ci_high ?? comparison.relative_lift;
+                                    const scaleMin = Math.min(ciLow, ciHigh, 0);
+                                    const scaleMax = Math.max(ciLow, ciHigh, 0);
                                     const scaleRange = Math.max(0.0001, scaleMax - scaleMin);
-                                    const comparisonLeft = ((Math.min(comparison.ci_low, comparison.ci_high) - scaleMin) / scaleRange) * 100;
+                                    const comparisonLeft = ((Math.min(ciLow, ciHigh) - scaleMin) / scaleRange) * 100;
                                     const comparisonWidth =
-                                      (Math.abs(comparison.ci_high - comparison.ci_low) / scaleRange) * 100;
+                                      (Math.abs(ciHigh - ciLow) / scaleRange) * 100;
                                     const zeroPosition = ((0 - scaleMin) / scaleRange) * 100;
                                     const pointPosition = ((comparison.relative_lift - scaleMin) / scaleRange) * 100;
                                     return (
@@ -561,17 +605,25 @@ export function ExperimentView({
                                           {getVariationLabel(comparison.baseline_variant, variations)}:{" "}
                                           {formatValue(comparison.relative_lift, "percent")}
                                         </div>
-                                        <div className="lift-track">
-                                          <div className="lift-zero" style={{ left: `${zeroPosition}%` }} />
-                                          <div className="lift-range" style={{ left: `${comparisonLeft}%`, width: `${comparisonWidth}%`, backgroundColor: ciColor }} />
-                                          <div
-                                            className={`lift-point ${comparison.relative_lift >= 0 ? "positive" : "negative"}`}
-                                            style={{ left: `${pointPosition}%` }}
-                                          />
-                                        </div>
-                                        <div className="table-secondary">
-                                          CI {formatValue(comparison.ci_low, "percent")} to {formatValue(comparison.ci_high, "percent")}
-                                        </div>
+                                        {comparison.has_sufficient_data && comparison.ci_low !== null && comparison.ci_high !== null ? (
+                                          <>
+                                            <div className="lift-track">
+                                              <div className="lift-zero" style={{ left: `${zeroPosition}%` }} />
+                                              <div className="lift-range" style={{ left: `${comparisonLeft}%`, width: `${comparisonWidth}%`, backgroundColor: ciColor }} />
+                                              <div
+                                                className={`lift-point ${comparison.relative_lift >= 0 ? "positive" : "negative"}`}
+                                                style={{ left: `${pointPosition}%` }}
+                                              />
+                                            </div>
+                                            <div className="table-secondary">
+                                              CI {formatValue(comparison.ci_low, "percent")} to {formatValue(comparison.ci_high, "percent")}
+                                            </div>
+                                          </>
+                                        ) : (
+                                          <div className="table-secondary">
+                                            {comparison.insufficient_data_reasons.join(" ")}
+                                          </div>
+                                        )}
                                       </div>
                                     );
                                   })() : <div className="table-secondary">No treatment comparison available.</div>}
@@ -584,6 +636,8 @@ export function ExperimentView({
                                       <div className="pvalue-line" style={{ backgroundColor: pvalueBg, color: pvalueColor, padding: pvalueBg !== "transparent" ? "2px 6px" : "0", borderRadius: "4px", display: "inline-block" }}>
                                         {getVariationLabel(selectedComparison.variant, variations)}: {formatPValue(selectedComparison.adjusted_p_value)}
                                       </div>
+                                    ) : selectedComparison ? (
+                                      <div className="pvalue-line">{selectedComparison.insufficient_data_reasons.join(" ")}</div>
                                     ) : (
                                       <div className="pvalue-line">n/a</div>
                                     )}
@@ -693,6 +747,44 @@ export function ExperimentView({
                 Save Override
               </button>
               <button className="button button-secondary" onClick={() => setEditingMetricId(null)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {editingThresholds ? (
+        <div className="popover-card">
+          <div className="panel-header">
+            <div>
+              <div className="section-tag">Thresholds</div>
+              <h3>Experiment Analysis Thresholds</h3>
+            </div>
+          </div>
+          <div className="form-grid">
+            <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input type="checkbox" checked={thresholdOverrideEnabled} onChange={(e) => setThresholdOverrideEnabled(e.target.checked)} />
+              Use experiment-specific thresholds
+            </label>
+            <div className="field">
+              <label>Minimum users per leg</label>
+              <input type="number" min={1} value={thresholdUsers} onChange={(e) => setThresholdUsers(Number(e.target.value))} disabled={!thresholdOverrideEnabled} />
+            </div>
+            <div className="field">
+              <label>Minimum conversions per leg</label>
+              <input type="number" min={0} value={thresholdConversions} onChange={(e) => setThresholdConversions(Number(e.target.value))} disabled={!thresholdOverrideEnabled} />
+            </div>
+            <div className="table-secondary">
+              {thresholdOverrideEnabled
+                ? "These thresholds apply only to this experiment."
+                : "When disabled, this experiment uses the global defaults from Settings."}
+            </div>
+            <div className="headline-actions">
+              <button className="button button-primary" disabled={isPending} onClick={saveThresholdOverride}>
+                Save Thresholds
+              </button>
+              <button className="button button-secondary" onClick={() => setEditingThresholds(false)}>
                 Cancel
               </button>
             </div>

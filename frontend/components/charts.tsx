@@ -158,7 +158,7 @@ export function MetricSeriesCard({
   const flattened = points.flatMap((point) =>
     (point.comparisons || [])
       .filter((c) => c.variant === activeVariant)
-      .flatMap((c) => [c.ci_low, c.ci_high, c.relative_lift])
+      .flatMap((c) => [c.ci_low ?? c.relative_lift, c.ci_high ?? c.relative_lift, c.relative_lift])
   );
   const minValue = Math.min(...flattened, 0);
   const maxValue = Math.max(...flattened, 0.0001);
@@ -263,12 +263,12 @@ export function MetricSeriesCard({
             const polygonPoints = [
               ...points.map((point, index) => {
                 const comp = point.comparisons?.find((c) => c.variant === activeVariant);
-                return pointToSvg(comp ? comp.ci_high : 0, index);
+                return pointToSvg(comp ? (comp.ci_high ?? comp.relative_lift) : 0, index);
               }),
               ...points.slice().reverse().map((point, reversedIndex) => {
                 const index = points.length - 1 - reversedIndex;
                 const comp = point.comparisons?.find((c) => c.variant === activeVariant);
-                return pointToSvg(comp ? comp.ci_low : 0, index);
+                return pointToSvg(comp ? (comp.ci_low ?? comp.relative_lift) : 0, index);
               }),
             ].join(" ");
 
@@ -319,9 +319,15 @@ export function MetricSeriesCard({
                       </div>
                       <strong>{formatValue(comp.relative_lift, "percent")}</strong>
                     </div>
-                    <div style={{ fontSize: "0.8rem", color: "var(--muted)", paddingLeft: "20px" }}>
-                      CI {formatValue(comp.ci_low, "percent")} to {formatValue(comp.ci_high, "percent")}
-                    </div>
+                    {comp.has_sufficient_data && comp.ci_low !== null && comp.ci_high !== null ? (
+                      <div style={{ fontSize: "0.8rem", color: "var(--muted)", paddingLeft: "20px" }}>
+                        CI {formatValue(comp.ci_low, "percent")} to {formatValue(comp.ci_high, "percent")}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: "0.8rem", color: "var(--muted)", paddingLeft: "20px" }}>
+                        {comp.insufficient_data_reasons.join(" ")}
+                      </div>
+                    )}
                   </div>
                 );
               })()}

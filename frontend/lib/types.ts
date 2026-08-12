@@ -29,6 +29,12 @@ export type DataSourceSummary = {
   password_configured: boolean;
 };
 
+export type AnalysisThresholdSettings = {
+  minimum_users_per_leg: number;
+  minimum_conversions_per_leg: number;
+  has_experiment_override: boolean;
+};
+
 export type MetricCatalogItem = {
   metric_id: string;
   label: string;
@@ -99,10 +105,12 @@ export type MetricRow = {
       baseline_variant: string;
       variant: string;
       relative_lift: number;
-      ci_low: number;
-      ci_high: number;
-      p_value: number;
-      adjusted_p_value: number;
+      ci_low: number | null;
+      ci_high: number | null;
+      p_value: number | null;
+      adjusted_p_value: number | null;
+      has_sufficient_data: boolean;
+      insufficient_data_reasons: string[];
     }>;
   }>;
   dimension_name: string | null;
@@ -120,22 +128,27 @@ export type MetricRow = {
     baseline_variant: string;
     variant: string;
     relative_lift: number;
-    ci_low: number;
-    ci_high: number;
-    p_value: number;
-    adjusted_p_value: number;
+    ci_low: number | null;
+    ci_high: number | null;
+    p_value: number | null;
+    adjusted_p_value: number | null;
+    has_sufficient_data: boolean;
+    insufficient_data_reasons: string[];
   }>;
   primary_comparison: {
     baseline_variant: string;
     variant: string;
     relative_lift: number;
-    ci_low: number;
-    ci_high: number;
-    p_value: number;
-    adjusted_p_value: number;
+    ci_low: number | null;
+    ci_high: number | null;
+    p_value: number | null;
+    adjusted_p_value: number | null;
+    has_sufficient_data: boolean;
+    insufficient_data_reasons: string[];
   } | null;
   multiple_testing_correction_applied: boolean;
   category: "primary" | "secondary" | "guardrail";
+  analysis_thresholds: AnalysisThresholdSettings;
 };
 
 export type AnalyzeResponse = {
@@ -153,6 +166,7 @@ export type AnalyzeResponse = {
   }>;
   variations: string[];
   total_users: number;
+  analysis_thresholds: AnalysisThresholdSettings;
   multiple_testing_correction_applied: boolean;
   multiple_testing_method: "bonferroni" | "benjamini-hochberg";
   split_dimension: string | null;
