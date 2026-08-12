@@ -2,9 +2,9 @@
 
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../../lib/AuthContext";
-import { createDataSource, createUser, deleteDataSource, deleteUser, getUsers, listDataSources, resetUserPassword, syncDataSource, testDataSourceConnection, updateMyPassword, updateUser } from "../../lib/api";
+import { createDataSource, createUser, deleteDataSource, deleteUser, getAnalysisThresholds, getUsers, listDataSources, resetUserPassword, syncDataSource, testDataSourceConnection, updateAnalysisThresholds, updateMyPassword, updateUser } from "../../lib/api";
 import { ConfirmModal, NoticeModal } from "../../components/modals";
-import { DataSourceSummary } from "../../lib/types";
+import { AnalysisThresholdSettings, DataSourceSummary } from "../../lib/types";
 
 type ModalState =
   | { type: "none" }
@@ -18,6 +18,10 @@ export default function SettingsPage() {
   const { user, logout } = useAuth();
   const [users, setUsers] = useState<any[]>([]);
   const [dataSources, setDataSources] = useState<DataSourceSummary[]>([]);
+  const [analysisThresholds, setAnalysisThresholds] = useState<AnalysisThresholdSettings | null>(null);
+  const [minimumUsersPerLeg, setMinimumUsersPerLeg] = useState("100");
+  const [minimumConversionsPerLeg, setMinimumConversionsPerLeg] = useState("25");
+  const [savingThresholds, setSavingThresholds] = useState(false);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -72,10 +76,22 @@ export default function SettingsPage() {
     }
   };
 
+  const loadAnalysisThresholds = async () => {
+    if (user?.role === "admin") {
+      try {
+        const data = await getAnalysisThresholds();
+        setAnalysisThresholds(data);
+        setMinimumUsersPerLeg(String(data.minimum_users_per_leg));
+        setMinimumConversionsPerLeg(String(data.minimum_conversions_per_leg));
+      } catch {}
+    }
+  };
+
   useEffect(() => {
     if (user) {
       loadUsers();
       loadDataSources();
+      loadAnalysisThresholds();
     }
   }, [user]);
 
@@ -260,6 +276,27 @@ export default function SettingsPage() {
     }
   };
 
+  const handleSaveAnalysisThresholds = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingThresholds(true);
+    try {
+      await updateAnalysisThresholds({
+        minimum_users_per_leg: Number(minimumUsersPerLeg),
+        minimum_conversions_per_leg: Number(minimumConversionsPerLeg),
+      });
+      await loadAnalysisThresholds();
+      setModal({
+        type: "notice",
+        title: "Thresholds Updated",
+        message: "Global analysis thresholds have been updated.",
+      });
+    } catch (err: any) {
+      setModal({ type: "notice", title: "Threshold Error", message: err.message || "Failed to update global analysis thresholds." });
+    } finally {
+      setSavingThresholds(false);
+    }
+  };
+
   if (!user) return null;
 
   return (
@@ -377,6 +414,40 @@ export default function SettingsPage() {
 
 
         {/* ── Admin: User Accounts ────────────────────────── */}
+        {user.role === "admin" && (
+          <section className="panel" style={{ gridColumn: "1 / -1" }}>
+            <div className="panel-header">
+              <div>
+                <div className="section-tag">Administration</div>
+                <h3>Global Analysis Thresholds</h3>
+              </div>
+              <div className="panel-caption">
+                Set the minimum data required in each experiment leg before ExpLab starts showing inferential statistics like confidence intervals and p-values.
+              </div>
+            </div>
+            <form onSubmit={handleSaveAnalysisThresholds} style={{ padding: "0 20px 20px", display: "grid", gap: 16 }}>
+              <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: "0.9rem" }}>Minimum users per leg</span>
+                  <input type="number" min={1} value={minimumUsersPerLeg} onChange={(e) => setMinimumUsersPerLeg(e.target.value)} style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid var(--border)", background: "var(--bg)" }} />
+                </label>
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: "0.9rem" }}>Minimum conversions per leg</span>
+                  <input type="number" min={0} value={minimumConversionsPerLeg} onChange={(e) => setMinimumConversionsPerLeg(e.target.value)} style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid var(--border)", background: "var(--bg)" }} />
+                </label>
+              </div>
+              <div style={{ color: "var(--muted)", fontSize: "0.9rem" }}>
+                Current default: {analysisThresholds ? `${analysisThresholds.minimum_users_per_leg} users and ${analysisThresholds.minimum_conversions_per_leg} conversions per leg.` : "Loading current thresholds..."}
+              </div>
+              <div>
+                <button className="button button-primary" type="submit" disabled={savingThresholds} style={{ padding: "8px 16px" }}>
+                  {savingThresholds ? "Saving..." : "Save Thresholds"}
+                </button>
+              </div>
+            </form>
+          </section>
+        )}
+
         {user.role === "admin" && (
           <section className="panel" style={{ gridColumn: "1 / -1" }}>
             <div className="panel-header">

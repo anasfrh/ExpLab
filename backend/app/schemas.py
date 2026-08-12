@@ -58,6 +58,22 @@ class ConversionEventUpdateRequest(BaseModel):
     default_window_days: int = Field(ge=1, le=30)
 
 
+class AnalysisThresholdSettings(BaseModel):
+    minimum_users_per_leg: int = Field(default=100, ge=1, le=1_000_000)
+    minimum_conversions_per_leg: int = Field(default=25, ge=0, le=1_000_000)
+    has_experiment_override: bool = False
+
+
+class AnalysisThresholdUpdateRequest(BaseModel):
+    minimum_users_per_leg: int = Field(ge=1, le=1_000_000)
+    minimum_conversions_per_leg: int = Field(ge=0, le=1_000_000)
+
+
+class ExperimentAnalysisThresholdOverrideRequest(BaseModel):
+    minimum_users_per_leg: int | None = Field(default=None, ge=1, le=1_000_000)
+    minimum_conversions_per_leg: int | None = Field(default=None, ge=0, le=1_000_000)
+
+
 class AdvanceDayRequest(BaseModel):
     experiment_id: str = "exp_revenue_v1"
     metric_name: str = "revenue"

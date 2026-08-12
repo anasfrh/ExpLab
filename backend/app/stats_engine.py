@@ -12,7 +12,7 @@ from scipy.stats import chi2, chi2_contingency, norm, ttest_ind
 from statsmodels.stats.multitest import multipletests
 
 from .database import get_connection
-from .models import DataSource
+from .models import DataSource, ExperimentAnalysisOverride, GlobalAnalysisSetting
 from .schemas import MetricDefinition
 from .warehouse_adapters import DIMENSION_COLUMNS, WarehouseAdapter, warehouse_adapter_for
 
@@ -131,6 +131,7 @@ class StatsEngine:
         if not experiment_users:
             raise ValueError("No experiment data available for analysis.")
 
+        analysis_thresholds = self.get_experiment_analysis_thresholds(experiment_id=experiment_id)
         metrics = self.get_metric_definitions(experiment_id=experiment_id, metric_ids=all_metric_ids)
         metric_rows: list[dict[str, Any]] = []
         test_slots_by_category: dict[str, list[tuple[dict[str, Any], dict[str, Any]]]] = {"primary": [], "secondary": []}
@@ -156,10 +157,11 @@ class StatsEngine:
                     dataset,
                     split_dimension,
                     winsor,
+                    analysis_thresholds=analysis_thresholds,
                     skip_tests=is_guardrail,
                 )
                 if split_dimension
-                else [self._run_group_test(dataset, winsor, skip_tests=is_guardrail)]
+                else [self._run_group_test(dataset, winsor, analysis_thresholds=analysis_thresholds, skip_tests=is_guardrail)]
             )
             
             rows = []
@@ -170,6 +172,7 @@ class StatsEngine:
                     experiment_id=experiment_id,
                     split_dimension=split_dimension,
                     include_time_series=include_time_series,
+                    analysis_thresholds=analysis_thresholds,
                 )
                 row["category"] = category
                 rows.append(row)
@@ -193,10 +196,13 @@ class StatsEngine:
 
         for category, slots in test_slots_by_category.items():
             if slots:
-                raw_p_values = [float(comparison["p_value"]) for _, comparison in slots]
+                valid_slots = [(row, comparison) for row, comparison in slots if comparison["p_value"] is not None]
+                if not valid_slots:
+                    continue
+                raw_p_values = [float(comparison["p_value"]) for _, comparison in valid_slots]
                 statsmodels_method = "fdr_bh" if multiple_testing_method == "benjamini-hochberg" else "bonferroni"
                 adjusted = multipletests(raw_p_values, method=statsmodels_method)[1] if len(raw_p_values) > 1 else raw_p_values
-                for (_, comparison), adjusted_p in zip(slots, adjusted, strict=True):
+                for (_, comparison), adjusted_p in zip(valid_slots, adjusted, strict=True):
                     comparison["adjusted_p_value"] = float(adjusted_p)
 
         for row in metric_rows:
@@ -218,6 +224,7 @@ class StatsEngine:
             "total_users": total_users,
             "multiple_testing_correction_applied": any(len(slots) > 1 for slots in test_slots_by_category.values()),
             "multiple_testing_method": multiple_testing_method,
+            "analysis_thresholds": analysis_thresholds,
             "split_dimension": split_dimension,
             "has_multiple_exposures": multiple_exposures_check["has_multiple_exposures"],
             "multiple_exposures_count": multiple_exposures_check["multiple_exposures_count"],
@@ -250,6 +257,98 @@ class StatsEngine:
         ).fetchall()
         sql_query = "SELECT s.event_name, s.default_window_days, COUNT(c.timestamp) AS usage_count FROM conversion_event_settings s LEFT JOIN conversion_events c ON c.event_name = s.event_name GROUP BY s.event_name, s.default_window_days ORDER BY s.event_name"
         return [{"sql_query": sql_query, **dict(row)} for row in rows]
+
+    def get_global_analysis_thresholds(self) -> dict[str, Any]:
+        row = self.connection.execute(
+            """
+            SELECT minimum_users_per_leg, minimum_conversions_per_leg
+            FROM global_analysis_settings
+            WHERE id = 1
+            """
+        ).fetchone()
+        if row is None:
+            self.connection.execute(
+                """
+                INSERT INTO global_analysis_settings(id, minimum_users_per_leg, minimum_conversions_per_leg)
+                VALUES (1, 100, 25)
+                """
+            )
+            self.connection.commit()
+            return {
+                "minimum_users_per_leg": 100,
+                "minimum_conversions_per_leg": 25,
+                "has_experiment_override": False,
+            }
+        return {
+            "minimum_users_per_leg": int(row["minimum_users_per_leg"]),
+            "minimum_conversions_per_leg": int(row["minimum_conversions_per_leg"]),
+            "has_experiment_override": False,
+        }
+
+    def update_global_analysis_thresholds(self, *, minimum_users_per_leg: int, minimum_conversions_per_leg: int) -> None:
+        self.connection.execute(
+            """
+            INSERT INTO global_analysis_settings(id, minimum_users_per_leg, minimum_conversions_per_leg)
+            VALUES (1, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                minimum_users_per_leg = excluded.minimum_users_per_leg,
+                minimum_conversions_per_leg = excluded.minimum_conversions_per_leg
+            """,
+            (minimum_users_per_leg, minimum_conversions_per_leg),
+        )
+        self.connection.commit()
+
+    def get_experiment_analysis_thresholds(self, *, experiment_id: str) -> dict[str, Any]:
+        global_settings = self.get_global_analysis_thresholds()
+        override = self.connection.execute(
+            """
+            SELECT minimum_users_per_leg, minimum_conversions_per_leg
+            FROM experiment_analysis_overrides
+            WHERE experiment_id = ?
+            """,
+            (experiment_id,),
+        ).fetchone()
+        if override is None:
+            return global_settings
+        return {
+            "minimum_users_per_leg": int(override["minimum_users_per_leg"]) if override["minimum_users_per_leg"] is not None else int(global_settings["minimum_users_per_leg"]),
+            "minimum_conversions_per_leg": int(override["minimum_conversions_per_leg"]) if override["minimum_conversions_per_leg"] is not None else int(global_settings["minimum_conversions_per_leg"]),
+            "has_experiment_override": True,
+        }
+
+    def upsert_experiment_analysis_threshold_override(
+        self,
+        *,
+        experiment_id: str,
+        minimum_users_per_leg: int | None,
+        minimum_conversions_per_leg: int | None,
+    ) -> None:
+        if minimum_users_per_leg is None and minimum_conversions_per_leg is None:
+            self.connection.execute(
+                "DELETE FROM experiment_analysis_overrides WHERE experiment_id = ?",
+                (experiment_id,),
+            )
+            self.connection.commit()
+            return
+
+        global_settings = self.get_global_analysis_thresholds()
+        resolved_users = minimum_users_per_leg if minimum_users_per_leg is not None else int(global_settings["minimum_users_per_leg"])
+        resolved_conversions = (
+            minimum_conversions_per_leg
+            if minimum_conversions_per_leg is not None
+            else int(global_settings["minimum_conversions_per_leg"])
+        )
+        self.connection.execute(
+            """
+            INSERT INTO experiment_analysis_overrides(experiment_id, minimum_users_per_leg, minimum_conversions_per_leg)
+            VALUES (?, ?, ?)
+            ON CONFLICT(experiment_id) DO UPDATE SET
+                minimum_users_per_leg = excluded.minimum_users_per_leg,
+                minimum_conversions_per_leg = excluded.minimum_conversions_per_leg
+            """,
+            (experiment_id, resolved_users, resolved_conversions),
+        )
+        self.connection.commit()
 
     @lru_cache
     def _get_dimension_columns(self) -> list[str]:
@@ -592,6 +691,7 @@ class StatsEngine:
         self,
         dataset: list[sqlite3.Row],
         winsorize_percentile: float | None,
+        analysis_thresholds: dict[str, Any],
         skip_tests: bool = False,
     ) -> dict[str, Any]:
         grouped_values: dict[str, list[float]] = {}
@@ -628,6 +728,20 @@ class StatsEngine:
             variant_values = grouped_arrays[variant]
             variant_mean = float(np.mean(variant_values))
             relative_lift = float((variant_mean - baseline_mean) / baseline_mean) if baseline_mean else 0.0
+            baseline_counts = raw_variation_stats[baseline]
+            variant_counts = raw_variation_stats[variant]
+            minimum_users_per_leg = int(analysis_thresholds["minimum_users_per_leg"])
+            minimum_conversions_per_leg = int(analysis_thresholds["minimum_conversions_per_leg"])
+            insufficient_data_reasons: list[str] = []
+            if baseline_counts["user_count"] < minimum_users_per_leg or variant_counts["user_count"] < minimum_users_per_leg:
+                insufficient_data_reasons.append(
+                    f"Requires at least {minimum_users_per_leg} users per leg."
+                )
+            if baseline_counts["conversion_count"] < minimum_conversions_per_leg or variant_counts["conversion_count"] < minimum_conversions_per_leg:
+                insufficient_data_reasons.append(
+                    f"Requires at least {minimum_conversions_per_leg} conversions per leg."
+                )
+            has_sufficient_data = len(insufficient_data_reasons) == 0
 
             if skip_tests:
                 comparisons.append(
@@ -639,6 +753,24 @@ class StatsEngine:
                         "ci_high": None,
                         "p_value": None,
                         "adjusted_p_value": None,
+                        "has_sufficient_data": has_sufficient_data,
+                        "insufficient_data_reasons": insufficient_data_reasons,
+                    }
+                )
+                continue
+
+            if not has_sufficient_data:
+                comparisons.append(
+                    {
+                        "baseline_variant": baseline,
+                        "variant": variant,
+                        "relative_lift": relative_lift,
+                        "ci_low": None,
+                        "ci_high": None,
+                        "p_value": None,
+                        "adjusted_p_value": None,
+                        "has_sufficient_data": False,
+                        "insufficient_data_reasons": insufficient_data_reasons,
                     }
                 )
                 continue
@@ -670,6 +802,8 @@ class StatsEngine:
                     "ci_high": ci_high,
                     "p_value": p_value,
                     "adjusted_p_value": p_value,
+                    "has_sufficient_data": True,
+                    "insufficient_data_reasons": [],
                 }
             )
 
@@ -711,6 +845,7 @@ class StatsEngine:
         experiment_id: str,
         split_dimension: str | None,
         include_time_series: bool,
+        analysis_thresholds: dict[str, Any],
     ) -> dict[str, Any]:
         winsor = metric.default_winsorize_percentile if metric.supports_winsorization else None
         row["metric_id"] = metric.id
@@ -723,6 +858,7 @@ class StatsEngine:
         row["supports_winsorization"] = metric.supports_winsorization
         row["has_experiment_override"] = metric.has_experiment_override
         row["desired_direction"] = metric.desired_direction
+        row["analysis_thresholds"] = analysis_thresholds
         row["analysis_sql"] = self._analysis_sql(
             experiment_id=experiment_id,
             day_range=metric.default_window_days,
@@ -736,6 +872,7 @@ class StatsEngine:
                 sql_expression=metric.sql_expression,
                 source_type=metric.source_type,
                 winsorize_percentile=winsor,
+                analysis_thresholds=analysis_thresholds,
                 split_dimension=split_dimension,
                 split_value=row.get("dimension_value"),
             )
@@ -753,6 +890,7 @@ class StatsEngine:
         sql_expression: str,
         source_type: str,
         winsorize_percentile: float | None,
+        analysis_thresholds: dict[str, Any],
         split_dimension: str | None = None,
         split_value: str | None = None,
     ) -> list[dict[str, Any]]:
@@ -788,7 +926,7 @@ class StatsEngine:
                     continue
 
                 try:
-                    date_result = self._run_group_test(date_rows, winsorize_percentile, skip_tests=False)
+                    date_result = self._run_group_test(date_rows, winsorize_percentile, analysis_thresholds=analysis_thresholds, skip_tests=False)
                     comparisons = date_result.get("comparisons", [])
                     variation_values = date_result.get("variation_values", {})
                 except ValueError:
@@ -840,7 +978,7 @@ class StatsEngine:
                 continue
             
             try:
-                date_result = self._run_group_test(date_rows, winsorize_percentile, skip_tests=False)
+                date_result = self._run_group_test(date_rows, winsorize_percentile, analysis_thresholds=analysis_thresholds, skip_tests=False)
                 comparisons = date_result.get("comparisons", [])
                 variation_values = date_result.get("variation_values", {})
             except ValueError:
@@ -875,6 +1013,7 @@ class StatsEngine:
         dataset: list[sqlite3.Row],
         dimension: str,
         winsorize_percentile: float | None,
+        analysis_thresholds: dict[str, Any],
         *,
         skip_tests: bool = False,
     ) -> list[dict[str, float | int | str]]:
@@ -885,7 +1024,7 @@ class StatsEngine:
         results: list[dict[str, float | int | str]] = []
         for group_name, rows in grouped.items():
             try:
-                group_result = self._run_group_test(rows, winsorize_percentile, skip_tests=skip_tests)
+                group_result = self._run_group_test(rows, winsorize_percentile, analysis_thresholds=analysis_thresholds, skip_tests=skip_tests)
                 group_result["dimension_value"] = group_name
                 results.append(group_result)
             except ValueError:

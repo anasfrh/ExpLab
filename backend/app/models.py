@@ -103,6 +103,22 @@ class ExperimentMetricOverride(Base):
     winsorize_percentile = Column(Float, nullable=False)
 
 
+class GlobalAnalysisSetting(Base):
+    __tablename__ = "global_analysis_settings"
+
+    id = Column(Integer, primary_key=True, default=1)
+    minimum_users_per_leg = Column(Integer, nullable=False, default=100)
+    minimum_conversions_per_leg = Column(Integer, nullable=False, default=25)
+
+
+class ExperimentAnalysisOverride(Base):
+    __tablename__ = "experiment_analysis_overrides"
+
+    experiment_id = Column(String, primary_key=True)
+    minimum_users_per_leg = Column(Integer, nullable=True)
+    minimum_conversions_per_leg = Column(Integer, nullable=True)
+
+
 class DataSource(Base):
     __tablename__ = "data_sources"
 

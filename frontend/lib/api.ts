@@ -1,4 +1,5 @@
 import {
+  AnalysisThresholdSettings,
   AnalyzeResponse,
   ConversionEventItem,
   DataSourceSummary,
@@ -63,6 +64,17 @@ export function updateConversionEventDefaults(eventName: string, payload: { defa
   return request<{ message: string }>(`/conversion-events/${eventName}`, payload, "PUT");
 }
 
+export function getAnalysisThresholds() {
+  return request<AnalysisThresholdSettings>("/analysis-thresholds");
+}
+
+export function updateAnalysisThresholds(payload: {
+  minimum_users_per_leg: number;
+  minimum_conversions_per_leg: number;
+}) {
+  return request<{ message: string }>("/analysis-thresholds", payload, "PUT");
+}
+
 export function listExperimentMetrics(experimentId: string, sourceName?: string) {
   const query = sourceName ? `?source_name=${encodeURIComponent(sourceName)}` : "";
   return request<{ metrics: ExperimentMetric[] }>(`/experiments/${encodeURIComponent(experimentId)}/metrics${query}`);
@@ -75,6 +87,21 @@ export function updateExperimentMetricOverride(
 ) {
   return request<{ message: string }>(
     `/experiments/${encodeURIComponent(experimentId)}/metrics/${encodeURIComponent(metricId)}/override`,
+    payload,
+    "PUT",
+  );
+}
+
+export function getExperimentAnalysisThresholds(experimentId: string) {
+  return request<AnalysisThresholdSettings>(`/experiments/${encodeURIComponent(experimentId)}/analysis-thresholds`);
+}
+
+export function updateExperimentAnalysisThresholds(
+  experimentId: string,
+  payload: { minimum_users_per_leg?: number; minimum_conversions_per_leg?: number },
+) {
+  return request<{ message: string }>(
+    `/experiments/${encodeURIComponent(experimentId)}/analysis-thresholds`,
     payload,
     "PUT",
   );

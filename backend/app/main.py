@@ -7,9 +7,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .database import LOCAL_SOURCE_NAME, clear_source_data
 from .schemas import (
+    AnalysisThresholdUpdateRequest,
     AdvanceDayRequest,
     AnalyzeRequest,
     ConversionEventUpdateRequest,
+    ExperimentAnalysisThresholdOverrideRequest,
     MetricCatalogUpdateRequest,
     MetricOverrideRequest,
     PowerCalculatorRequest,
@@ -122,6 +124,25 @@ def update_conversion_event(event_name: str, request: ConversionEventUpdateReque
     return {"message": "Conversion event defaults updated"}
 
 
+@app.get("/analysis-thresholds")
+def get_analysis_thresholds(current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, object]:
+    with StatsEngine() as engine:
+        return engine.get_global_analysis_thresholds()
+
+
+@app.put("/analysis-thresholds")
+def update_analysis_thresholds(
+    request: AnalysisThresholdUpdateRequest,
+    current_user: dict[str, Any] = Depends(check_can_edit_metrics),
+) -> dict[str, str]:
+    with StatsEngine() as engine:
+        engine.update_global_analysis_thresholds(
+            minimum_users_per_leg=request.minimum_users_per_leg,
+            minimum_conversions_per_leg=request.minimum_conversions_per_leg,
+        )
+    return {"message": "Global analysis thresholds updated"}
+
+
 @app.get("/experiments/{experiment_id}/metrics")
 def experiment_metrics(
     experiment_id: str,
@@ -148,6 +169,30 @@ def update_experiment_metric_override(
             winsorize_percentile=request.winsorize_percentile,
         )
     return {"message": "Experiment override updated"}
+
+
+@app.get("/experiments/{experiment_id}/analysis-thresholds")
+def get_experiment_analysis_thresholds(
+    experiment_id: str,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, object]:
+    with StatsEngine() as engine:
+        return engine.get_experiment_analysis_thresholds(experiment_id=experiment_id)
+
+
+@app.put("/experiments/{experiment_id}/analysis-thresholds")
+def update_experiment_analysis_thresholds(
+    experiment_id: str,
+    request: ExperimentAnalysisThresholdOverrideRequest,
+    current_user: dict[str, Any] = Depends(check_can_edit_metrics),
+) -> dict[str, str]:
+    with StatsEngine() as engine:
+        engine.upsert_experiment_analysis_threshold_override(
+            experiment_id=experiment_id,
+            minimum_users_per_leg=request.minimum_users_per_leg,
+            minimum_conversions_per_leg=request.minimum_conversions_per_leg,
+        )
+    return {"message": "Experiment analysis thresholds updated"}
 
 
 @app.post("/advance-day")
