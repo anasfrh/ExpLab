@@ -1008,6 +1008,29 @@ input[type="checkbox"] {
   gap: 16px;
 }
 
+.diagnostic-banner {
+  margin-bottom: 24px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+
+.diagnostic-banner strong {
+  display: block;
+}
+
+.diagnostic-banner-danger {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.28);
+  color: var(--red);
+}
+
+.diagnostic-banner-success {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.28);
+  color: var(--green);
+}
+
 .checks-card {
   overflow: hidden;
 }

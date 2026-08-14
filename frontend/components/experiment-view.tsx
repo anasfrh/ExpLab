@@ -697,14 +697,6 @@ export function ExperimentView({
         )}
         {analysis ? (
           <>
-            <p className="srm-line">
-              SRM check: {analysis.srm.critical ? "critical mismatch detected" : "no critical mismatch detected"} with a
-              p-value of {formatPValue(analysis.srm.p_value)} across{" "}
-              {Object.entries(analysis.srm.counts)
-                .map(([variation, count]) => `${getVariationLabel(variation, variations)} ${count}`)
-                .join(", ")}
-              .
-            </p>
             {analysis.multiple_testing_correction_applied ? (
               <p className="srm-line">
                 {analysis.multiple_testing_method === "bonferroni" ? "Bonferroni" : "Benjamini-Hochberg"} multiple
@@ -833,6 +825,10 @@ function ExperimentChecksPanel({
   analysis: AnalyzeResponse;
   variations: string[];
 }) {
+  const srmCountsSummary = Object.entries(analysis.srm.counts)
+    .map(([variation, count]) => `${getVariationLabel(variation, variations)} ${formatCount(count)}`)
+    .join(", ");
+
   return (
     <section className="checks-panel">
       <div className="panel-header">
@@ -841,9 +837,22 @@ function ExperimentChecksPanel({
           <h3>Experiment Checks</h3>
         </div>
       </div>
+      <div
+        className={`diagnostic-banner ${analysis.srm.critical ? "diagnostic-banner-danger" : "diagnostic-banner-success"}`}
+      >
+        <strong>{analysis.srm.critical ? "Sample Ratio Mismatch Detected" : "No Sample Ratio Mismatch Detected"}</strong>
+        <p style={{ margin: "4px 0 0 0" }}>
+          {analysis.srm.critical
+            ? "Observed traffic allocation differs materially from the expected split for this experiment."
+            : "Observed traffic allocation is within the expected range for this experiment."}
+        </p>
+        <p style={{ margin: "4px 0 0 0" }}>
+          P-value: {formatPValue(analysis.srm.p_value)}. Variation counts: {srmCountsSummary}.
+        </p>
+      </div>
       {analysis.has_multiple_exposures && (
-        <div className="warning-banner" style={{ background: "rgba(239, 68, 68, 0.15)", color: "var(--red)", padding: "16px", borderRadius: "8px", marginBottom: "24px" }}>
-          <strong>⚠️ Multiple Exposures Detected</strong>
+        <div className="diagnostic-banner diagnostic-banner-danger">
+          <strong>Multiple Exposures Detected</strong>
           <p style={{ margin: "4px 0 0 0" }}>{analysis.multiple_exposures_count} user(s) were exposed to more than one variation in this experiment.</p>
           <p style={{ margin: "4px 0 0 0" }}>This violates the stable unit treatment value assumption (SUTVA). These results may be invalid.</p>
         </div>

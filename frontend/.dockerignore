@@ -1,0 +1,5 @@
+node_modules
+.next
+.next_stale_2026_05_06
+tsconfig.tsbuildinfo
+npm-debug.log*
