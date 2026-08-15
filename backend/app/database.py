@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import logging
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import Generator
 
@@ -13,6 +15,8 @@ from .models import (
     GlobalAnalysisSetting,
     MetricDefinition,
 )
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 DB_PATH = BASE_DIR / "data" / "experiment.db"
@@ -51,6 +55,7 @@ def get_db() -> Generator[Session, None, None]:
 
 def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _recover_if_corrupt()
     with engine.begin() as connection:
         connection.execute(text("PRAGMA journal_mode=WAL;"))
     
@@ -110,6 +115,7 @@ def seed_global_analysis_settings(session: Session) -> None:
 
 def reset_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _recover_if_corrupt()
     with engine.begin() as connection:
         connection.execute(text("PRAGMA journal_mode=WAL;"))
         for table_name in DEMO_TABLES:
@@ -172,4 +178,27 @@ def _migrate_legacy_schema() -> None:
                 """
             ),
             {"source_name": LOCAL_SOURCE_NAME},
+        )
+
+
+def _recover_if_corrupt() -> None:
+    if not DB_PATH.exists():
+        return
+
+    try:
+        with sqlite3.connect(DB_PATH, timeout=30) as connection:
+            connection.execute("PRAGMA integrity_check;").fetchone()
+    except sqlite3.DatabaseError:
+        timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+        engine.dispose()
+        backup_paths: list[Path] = []
+        for path in (DB_PATH, DB_PATH.with_name(f"{DB_PATH.name}-wal"), DB_PATH.with_name(f"{DB_PATH.name}-shm")):
+            if path.exists():
+                backup = path.with_name(f"{path.name}.corrupt-{timestamp}")
+                path.rename(backup)
+                backup_paths.append(backup)
+        logger.warning(
+            "Recovered from corrupt SQLite database at %s. Backed up: %s",
+            DB_PATH,
+            ", ".join(str(path) for path in backup_paths) if backup_paths else "none",
         )

@@ -14,7 +14,7 @@ from ..auth import (
     get_password_hash,
     verify_password,
 )
-from ..database import DB_PATH, SessionLocal, get_db, init_db
+from ..database import DB_PATH, SessionLocal, get_db
 from ..models import User
 
 router = APIRouter(tags=["users"])
@@ -52,7 +52,6 @@ def setup_status() -> dict[str, bool]:
 
 @router.post("/auth/setup")
 def setup_admin(data: UserCreate, db: Session = Depends(get_db)) -> dict[str, str]:
-    init_db()
     admin_count = db.scalar(select(func.count(User.id)).where(User.role == "admin"))
     if admin_count > 0:
         raise HTTPException(status_code=400, detail="Admin account already exists")
