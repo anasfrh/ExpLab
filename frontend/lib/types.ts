@@ -92,8 +92,10 @@ export type MetricRow = {
   variation_stats: {
     [variation: string]: {
       user_count: number;
-      conversion_count: number;
+      conversion_count: number | null;
+      non_zero_user_count: number;
       average_value: number;
+      total_value: number;
     };
   };
   time_series: Array<{
