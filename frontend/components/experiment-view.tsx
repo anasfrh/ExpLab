@@ -398,29 +398,6 @@ export function ExperimentView({
         </div>
       </section>
 
-      <section className="assumptions-strip">
-        <div className="assumption-tile">
-          <span className="meta-label">Hierarchy</span>
-          <strong>Experiment override → global default → seeded fallback</strong>
-        </div>
-        <div className="assumption-tile">
-          <span className="meta-label">Conversions</span>
-          <strong>Window only, no winsorization</strong>
-        </div>
-        <div className="assumption-tile">
-          <span className="meta-label">Metrics</span>
-          <strong>Window plus winsorization when supported</strong>
-        </div>
-        <div className="assumption-tile">
-          <span className="meta-label">Inference Thresholds</span>
-          <strong>
-            {analysis
-              ? `${analysis.analysis_thresholds.minimum_users_per_leg} users + ${analysis.analysis_thresholds.minimum_conversions_per_leg} conversions / leg`
-              : "Loading..."}
-          </strong>
-        </div>
-      </section>
-
       <section className="panel">
         <div className="panel-header">
           <div>
