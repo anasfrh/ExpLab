@@ -158,10 +158,19 @@ class StatsEngine:
                     split_dimension,
                     winsor,
                     analysis_thresholds=analysis_thresholds,
+                    source_type=metric.source_type,
                     skip_tests=is_guardrail,
                 )
                 if split_dimension
-                else [self._run_group_test(dataset, winsor, analysis_thresholds=analysis_thresholds, skip_tests=is_guardrail)]
+                else [
+                    self._run_group_test(
+                        dataset,
+                        winsor,
+                        analysis_thresholds=analysis_thresholds,
+                        source_type=metric.source_type,
+                        skip_tests=is_guardrail,
+                    )
+                ]
             )
             
             rows = []
@@ -692,6 +701,7 @@ class StatsEngine:
         dataset: list[sqlite3.Row],
         winsorize_percentile: float | None,
         analysis_thresholds: dict[str, Any],
+        source_type: str,
         skip_tests: bool = False,
     ) -> dict[str, Any]:
         grouped_values: dict[str, list[float]] = {}
@@ -700,10 +710,19 @@ class StatsEngine:
             variation = str(row["variation_id"])
             metric_value = float(row["metric_value"])
             grouped_values.setdefault(variation, []).append(metric_value)
-            stats = raw_variation_stats.setdefault(variation, {"user_count": 0, "conversion_count": 0})
+            stats = raw_variation_stats.setdefault(
+                variation,
+                {
+                    "user_count": 0,
+                    "conversion_count": 0,
+                    "non_zero_user_count": 0,
+                },
+            )
             stats["user_count"] += 1
             if metric_value > 0:
-                stats["conversion_count"] += 1
+                stats["non_zero_user_count"] += 1
+                if source_type == "conversion_event":
+                    stats["conversion_count"] += 1
 
         ordered_variations = self._ordered_variations(list(grouped_values.keys()))
         grouped_arrays = {
@@ -733,13 +752,28 @@ class StatsEngine:
             minimum_users_per_leg = int(analysis_thresholds["minimum_users_per_leg"])
             minimum_conversions_per_leg = int(analysis_thresholds["minimum_conversions_per_leg"])
             insufficient_data_reasons: list[str] = []
+            threshold_count_label = (
+                "conversions"
+                if source_type == "conversion_event"
+                else "users with non-zero metric values"
+            )
+            baseline_threshold_count = (
+                baseline_counts["conversion_count"]
+                if source_type == "conversion_event"
+                else baseline_counts["non_zero_user_count"]
+            )
+            variant_threshold_count = (
+                variant_counts["conversion_count"]
+                if source_type == "conversion_event"
+                else variant_counts["non_zero_user_count"]
+            )
             if baseline_counts["user_count"] < minimum_users_per_leg or variant_counts["user_count"] < minimum_users_per_leg:
                 insufficient_data_reasons.append(
                     f"Requires at least {minimum_users_per_leg} users per leg."
                 )
-            if baseline_counts["conversion_count"] < minimum_conversions_per_leg or variant_counts["conversion_count"] < minimum_conversions_per_leg:
+            if baseline_threshold_count < minimum_conversions_per_leg or variant_threshold_count < minimum_conversions_per_leg:
                 insufficient_data_reasons.append(
-                    f"Requires at least {minimum_conversions_per_leg} conversions per leg."
+                    f"Requires at least {minimum_conversions_per_leg} {threshold_count_label} per leg."
                 )
             has_sufficient_data = len(insufficient_data_reasons) == 0
 
@@ -828,8 +862,14 @@ class StatsEngine:
         payload["variation_stats"] = {
             variation: {
                 "user_count": raw_variation_stats[variation]["user_count"],
-                "conversion_count": raw_variation_stats[variation]["conversion_count"],
+                "conversion_count": (
+                    raw_variation_stats[variation]["conversion_count"]
+                    if source_type == "conversion_event"
+                    else None
+                ),
+                "non_zero_user_count": raw_variation_stats[variation]["non_zero_user_count"],
                 "average_value": float(np.mean(grouped_arrays[variation])),
+                "total_value": float(np.sum(grouped_arrays[variation])),
             }
             for variation in ordered_variations
         }
@@ -926,7 +966,13 @@ class StatsEngine:
                     continue
 
                 try:
-                    date_result = self._run_group_test(date_rows, winsorize_percentile, analysis_thresholds=analysis_thresholds, skip_tests=False)
+                    date_result = self._run_group_test(
+                        date_rows,
+                        winsorize_percentile,
+                        analysis_thresholds=analysis_thresholds,
+                        source_type=source_type,
+                        skip_tests=False,
+                    )
                     comparisons = date_result.get("comparisons", [])
                     variation_values = date_result.get("variation_values", {})
                 except ValueError:
@@ -978,7 +1024,13 @@ class StatsEngine:
                 continue
             
             try:
-                date_result = self._run_group_test(date_rows, winsorize_percentile, analysis_thresholds=analysis_thresholds, skip_tests=False)
+                date_result = self._run_group_test(
+                    date_rows,
+                    winsorize_percentile,
+                    analysis_thresholds=analysis_thresholds,
+                    source_type=source_type,
+                    skip_tests=False,
+                )
                 comparisons = date_result.get("comparisons", [])
                 variation_values = date_result.get("variation_values", {})
             except ValueError:
@@ -1014,6 +1066,7 @@ class StatsEngine:
         dimension: str,
         winsorize_percentile: float | None,
         analysis_thresholds: dict[str, Any],
+        source_type: str,
         *,
         skip_tests: bool = False,
     ) -> list[dict[str, float | int | str]]:
@@ -1024,7 +1077,13 @@ class StatsEngine:
         results: list[dict[str, float | int | str]] = []
         for group_name, rows in grouped.items():
             try:
-                group_result = self._run_group_test(rows, winsorize_percentile, analysis_thresholds=analysis_thresholds, skip_tests=skip_tests)
+                group_result = self._run_group_test(
+                    rows,
+                    winsorize_percentile,
+                    analysis_thresholds=analysis_thresholds,
+                    source_type=source_type,
+                    skip_tests=skip_tests,
+                )
                 group_result["dimension_value"] = group_name
                 results.append(group_result)
             except ValueError:

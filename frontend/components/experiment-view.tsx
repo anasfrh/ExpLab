@@ -70,6 +70,22 @@ export function ExperimentView({
     }
   }, [activeTreatment, selectedTreatment]);
 
+  const getSecondaryStatLabel = (sourceType: "metric" | "conversion_event") =>
+    sourceType === "conversion_event" ? "Conversions" : "Winsorized total";
+
+  const getSecondaryStatValue = (
+    variation: string,
+    row: AnalyzeResponse["metric_rows"][number],
+  ) => {
+    const stats = row.variation_stats[variation];
+    if (!stats) {
+      return 0;
+    }
+    return row.source_type === "conversion_event"
+      ? stats.conversion_count ?? 0
+      : stats.total_value;
+  };
+
   const refreshAll = (primary: string[], secondary: string[], guardrail: string[]) => {
     startTransition(async () => {
       try {
@@ -577,8 +593,14 @@ export function ExperimentView({
                                         <strong>{variation ? formatCount(row.variation_stats[variation]?.user_count ?? 0) : "n/a"}</strong>
                                       </div>
                                       <div className="variant-stat-line">
-                                        <span>Conversions</span>
-                                        <strong>{variation ? formatCount(row.variation_stats[variation]?.conversion_count ?? 0) : "n/a"}</strong>
+                                        <span>{getSecondaryStatLabel(row.source_type)}</span>
+                                        <strong>
+                                          {variation
+                                            ? row.source_type === "conversion_event"
+                                              ? formatCount(getSecondaryStatValue(variation, row))
+                                              : formatValue(getSecondaryStatValue(variation, row), row.value_format)
+                                            : "n/a"}
+                                        </strong>
                                       </div>
                                     </div>
                                   </div>
